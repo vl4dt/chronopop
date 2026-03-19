@@ -1,0 +1,142 @@
+import { flavors } from '@catppuccin/palette';
+
+export type FlavorName = 'latte' | 'frappe' | 'macchiato' | 'mocha';
+
+export interface ThemeColors {
+  base: string;
+  mantle: string;
+  crust: string;
+  text: string;
+  subtext0: string;
+  subtext1: string;
+  surface0: string;
+  surface1: string;
+  surface2: string;
+  overlay0: string;
+  overlay1: string;
+  blue: string;
+  lavender: string;
+  sapphire: string;
+  sky: string;
+  teal: string;
+  green: string;
+  yellow: string;
+  peach: string;
+  maroon: string;
+  red: string;
+  mauve: string;
+  pink: string;
+  flamingo: string;
+  rosewater: string;
+}
+
+export const palettes: Record<FlavorName, ThemeColors> = {
+  latte: {
+    base: flavors.latte.colors.base.hex,
+    mantle: flavors.latte.colors.mantle.hex,
+    crust: flavors.latte.colors.crust.hex,
+    text: flavors.latte.colors.text.hex,
+    subtext0: flavors.latte.colors.subtext0.hex,
+    subtext1: flavors.latte.colors.subtext1.hex,
+    surface0: flavors.latte.colors.surface0.hex,
+    surface1: flavors.latte.colors.surface1.hex,
+    surface2: flavors.latte.colors.surface2.hex,
+    overlay0: flavors.latte.colors.overlay0.hex,
+    overlay1: flavors.latte.colors.overlay1.hex,
+    blue: flavors.latte.colors.blue.hex,
+    lavender: flavors.latte.colors.lavender.hex,
+    sapphire: flavors.latte.colors.sapphire.hex,
+    sky: flavors.latte.colors.sky.hex,
+    teal: flavors.latte.colors.teal.hex,
+    green: flavors.latte.colors.green.hex,
+    yellow: flavors.latte.colors.yellow.hex,
+    peach: flavors.latte.colors.peach.hex,
+    maroon: flavors.latte.colors.maroon.hex,
+    red: flavors.latte.colors.red.hex,
+    mauve: flavors.latte.colors.mauve.hex,
+    pink: flavors.latte.colors.pink.hex,
+    flamingo: flavors.latte.colors.flamingo.hex,
+    rosewater: flavors.latte.colors.rosewater.hex,
+  },
+  frappe: {
+    base: flavors.frappe.colors.base.hex,
+    mantle: flavors.frappe.colors.mantle.hex,
+    crust: flavors.frappe.colors.crust.hex,
+    text: flavors.frappe.colors.text.hex,
+    subtext0: flavors.frappe.colors.subtext0.hex,
+    subtext1: flavors.frappe.colors.subtext1.hex,
+    surface0: flavors.frappe.colors.surface0.hex,
+    surface1: flavors.frappe.colors.surface1.hex,
+    surface2: flavors.frappe.colors.surface2.hex,
+    overlay0: flavors.frappe.colors.overlay0.hex,
+    overlay1: flavors.frappe.colors.overlay1.hex,
+    blue: flavors.frappe.colors.blue.hex,
+    lavender: flavors.frappe.colors.lavender.hex,
+    sapphire: flavors.frappe.colors.sapphire.hex,
+    sky: flavors.frappe.colors.sky.hex,
+    teal: flavors.frappe.colors.teal.hex,
+    green: flavors.frappe.colors.green.hex,
+    yellow: flavors.frappe.colors.yellow.hex,
+    peach: flavors.frappe.colors.peach.hex,
+    maroon: flavors.frappe.colors.maroon.hex,
+    red: flavors.frappe.colors.red.hex,
+    mauve: flavors.frappe.colors.mauve.hex,
+    pink: flavors.frappe.colors.pink.hex,
+    flamingo: flavors.frappe.colors.flamingo.hex,
+    rosewater: flavors.frappe.colors.rosewater.hex,
+  },
+  macchiato: {
+    base: flavors.macchiato.colors.base.hex,
+    mantle: flavors.macchiato.colors.mantle.hex,
+    crust: flavors.macchiato.colors.crust.hex,
+    text: flavors.macchiato.colors.text.hex,
+    subtext0: flavors.macchiato.colors.subtext0.hex,
+    subtext1: flavors.macchiato.colors.subtext1.hex,
+    surface0: flavors.macchiato.colors.surface0.hex,
+    surface1: flavors.macchiato.colors.surface1.hex,
+    surface2: flavors.macchiato.colors.surface2.hex,
+    overlay0: flavors.macchiato.colors.overlay0.hex,
+    overlay1: flavors.macchiato.colors.overlay1.hex,
+    blue: flavors.macchiato.colors.blue.hex,
+    lavender: flavors.macchiato.colors.lavender.hex,
+    sapphire: flavors.macchiato.colors.sapphire.hex,
+    sky: flavors.macchiato.colors.sky.hex,
+    teal: flavors.macchiato.colors.teal.hex,
+    green: flavors.macchiato.colors.green.hex,
+    yellow: flavors.macchiato.colors.yellow.hex,
+    peach: flavors.macchiato.colors.peach.hex,
+    maroon: flavors.macchiato.colors.maroon.hex,
+    red: flavors.macchiato.colors.red.hex,
+    mauve: flavors.macchiato.colors.mauve.hex,
+    pink: flavors.macchiato.colors.pink.hex,
+    flamingo: flavors.macchiato.colors.flamingo.hex,
+    rosewater: flavors.macchiato.colors.rosewater.hex,
+  },
+  mocha: {
+    base: flavors.mocha.colors.base.hex,
+    mantle: flavors.mocha.colors.mantle.hex,
+    crust: flavors.mocha.colors.crust.hex,
+    text: flavors.mocha.colors.text.hex,
+    subtext0: flavors.mocha.colors.subtext0.hex,
+    subtext1: flavors.mocha.colors.subtext1.hex,
+    surface0: flavors.mocha.colors.surface0.hex,
+    surface1: flavors.mocha.colors.surface1.hex,
+    surface2: flavors.mocha.colors.surface2.hex,
+    overlay0: flavors.mocha.colors.overlay0.hex,
+    overlay1: flavors.mocha.colors.overlay1.hex,
+    blue: flavors.mocha.colors.blue.hex,
+    lavender: flavors.mocha.colors.lavender.hex,
+    sapphire: flavors.mocha.colors.sapphire.hex,
+    sky: flavors.mocha.colors.sky.hex,
+    teal: flavors.mocha.colors.teal.hex,
+    green: flavors.mocha.colors.green.hex,
+    yellow: flavors.mocha.colors.yellow.hex,
+    peach: flavors.mocha.colors.peach.hex,
+    maroon: flavors.mocha.colors.maroon.hex,
+    red: flavors.mocha.colors.red.hex,
+    mauve: flavors.mocha.colors.mauve.hex,
+    pink: flavors.mocha.colors.pink.hex,
+    flamingo: flavors.mocha.colors.flamingo.hex,
+    rosewater: flavors.mocha.colors.rosewater.hex,
+  },
+};
