@@ -5,10 +5,9 @@ import { useTheme } from '../theme/ThemeContext';
 import { ThemeText } from '../components/ThemeText';
 import { ThemeColorPicker } from '../components/ThemeColorPicker';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../convex/_generated/api';
+import { usePersistentWorldClocks } from '../hooks/usePersistentData';
+import { SyncStatusIndicator } from '../components/SyncStatusIndicator';
 import { useSync } from '../context/SyncContext';
-import { Doc, Id } from '../../convex/_generated/dataModel';
 import { WORLD_CITIES as TIMEZONES } from '../data/cities';
 
 export const WorldClockScreen = () => {
@@ -16,16 +15,11 @@ export const WorldClockScreen = () => {
   const { syncCode } = useSync();
   const [now, setNow] = useState(new Date());
   
-  const cloudCities = useQuery(api.db.getWorldClocks, { deviceId: syncCode }) || [];
-  const sortedCities = useMemo(() => [...cloudCities].sort((a, b) => a.order - b.order), [cloudCities]);
-
-  const createCityMutable = useMutation(api.db.createWorldClock);
-  const deleteCityMutable = useMutation(api.db.deleteWorldClock);
-  const updateCityMutable = useMutation(api.db.updateWorldClock);
-  const reorderCitiesMutable = useMutation(api.db.reorderWorldClocks);
+  const { clocks, create, remove, update, reorder } = usePersistentWorldClocks();
+  const sortedCities = useMemo(() => [...clocks].sort((a, b) => a.order - b.order), [clocks]);
 
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [selectedCityId, setSelectedCityId] = useState<Id<"worldClocks"> | null>(null);
+  const [selectedCityId, setSelectedCityId] = useState<string | null>(null);
   
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [search, setSearch] = useState('');
@@ -36,12 +30,12 @@ export const WorldClockScreen = () => {
   }, []);
 
   const addCity = (city: typeof TIMEZONES[0]) => {
-    createCityMutable({
+    create({
       deviceId: syncCode,
       name: city.name,
       timezone: city.zone,
       colorKey: 'blue',
-      order: cloudCities.length,
+      order: clocks.length,
     });
     setAddModalVisible(false);
     setSearch('');
@@ -52,7 +46,7 @@ export const WorldClockScreen = () => {
     t.zone.toLowerCase().includes(search.toLowerCase())
   );
 
-  const renderItem = ({ item, drag, isActive }: RenderItemParams<Doc<"worldClocks">>) => {
+  const renderItem = ({ item, drag, isActive }: RenderItemParams<any>) => {
     const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: item.timezone,
       hour: 'numeric',
@@ -94,7 +88,7 @@ export const WorldClockScreen = () => {
           <ThemeText variant="h1" colorKey="text">{timeString}</ThemeText>
           <TouchableOpacity 
             style={styles.deleteBtn}
-            onPress={() => deleteCityMutable({ id: item._id })}
+            onPress={() => remove({ id: item._id })}
           >
             <Ionicons name="trash-outline" size={20} color={colors.red} />
           </TouchableOpacity>
@@ -103,13 +97,14 @@ export const WorldClockScreen = () => {
     );
   };
 
-  const handleDragEnd = ({ data }: { data: Doc<"worldClocks">[] }) => {
+  const handleDragEnd = ({ data }: { data: any[] }) => {
     const shifts = data.map((c, i) => ({ id: c._id, order: i }));
-    reorderCitiesMutable({ shifts });
+    reorder({ shifts });
   };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.base }]}>
+      <SyncStatusIndicator />
       <DraggableFlatList
         data={sortedCities}
         onDragEnd={handleDragEnd}
@@ -168,9 +163,9 @@ export const WorldClockScreen = () => {
         <ThemeColorPicker
           visible={pickerVisible}
           onClose={() => setPickerVisible(false)}
-          selectedColorKey={cloudCities.find(c => c._id === selectedCityId)?.colorKey as any}
+          selectedColorKey={clocks.find((c: any) => c._id === selectedCityId)?.colorKey as any}
           onSelectColor={(colorKey) => {
-            updateCityMutable({ id: selectedCityId, colorKey });
+            update({ id: selectedCityId, colorKey });
           }}
         />
       )}

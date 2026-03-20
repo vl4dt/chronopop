@@ -9,18 +9,26 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SyncProvider } from './src/context/SyncContext';
 import { configureNotifications, setupAndroidChannel, requestNotificationPermissions } from './src/utils/NotificationService';
 import { useAlarmNotificationSync } from './src/hooks/useAlarmNotificationSync';
+import { useDataMigration } from './src/hooks/useDataMigration';
 
 const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!);
 
 const AppContent = () => {
   const { isDark } = useTheme();
   useAlarmNotificationSync();
+  useDataMigration();
 
   useEffect(() => {
-    // Set up notification behaviour + Android channel at app boot
-    configureNotifications();
-    setupAndroidChannel();
-    requestNotificationPermissions();
+    const setup = async () => {
+      try {
+        configureNotifications();
+        await setupAndroidChannel();
+        await requestNotificationPermissions();
+      } catch (err) {
+        console.warn('App notification setup issue:', err);
+      }
+    };
+    setup();
   }, []);
 
   return (

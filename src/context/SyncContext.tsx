@@ -7,19 +7,23 @@ import { useQuery } from 'convex/react';
 interface SyncContextType {
   syncCode: string;
   isPro: boolean;
+  isSyncActive: boolean;
   clockOffset: number;
   setSyncCode: (code: string) => Promise<void>;
   upgradeToPro: () => Promise<void>;
   downgradeFromPro: () => void;
+  toggleSync: (active: boolean) => Promise<void>;
 }
 
 const SyncContext = createContext<SyncContextType>({
   syncCode: '',
   isPro: false,
+  isSyncActive: false,
   clockOffset: 0,
   setSyncCode: async () => {},
   upgradeToPro: async () => {},
   downgradeFromPro: () => {},
+  toggleSync: async () => {},
 });
 
 export const useSync = () => useContext(SyncContext);
@@ -27,6 +31,7 @@ export const useSync = () => useContext(SyncContext);
 export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const [syncCode, setSyncCodeState] = useState('');
   const [isPro, setIsPro] = useState(false);
+  const [isSyncActive, setIsSyncActive] = useState(false);
   const [clockOffset, setClockOffset] = useState(0);
 
   const serverTime = useQuery(api.db.getServerTime);
@@ -41,8 +46,19 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     const init = async () => {
       const code = await getDeviceSyncCode();
       setSyncCodeState(code);
-      const proStatus = await AsyncStorage.getItem('@pro_status');
+      
+      const [proStatus, syncStatus] = await Promise.all([
+        AsyncStorage.getItem('@pro_status'),
+        AsyncStorage.getItem('@is_sync_active')
+      ]);
+
       if (proStatus === 'true') setIsPro(true);
+      // Sync is only active for Pro users who have enabled it
+      if (proStatus === 'true' && syncStatus === 'true') {
+        setIsSyncActive(true);
+      } else {
+        setIsSyncActive(false);
+      }
     };
     init();
   }, []);
@@ -59,12 +75,33 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const downgradeFromPro = useCallback(() => {
-    AsyncStorage.setItem('@pro_status', 'false');
+    AsyncStorage.multiSet([
+      ['@pro_status', 'false'],
+      ['@is_sync_active', 'false']
+    ]);
     setIsPro(false);
+    setIsSyncActive(false);
   }, []);
 
+  const toggleSync = useCallback(async (active: boolean) => {
+    if (!isPro && active) {
+      throw new Error("Pro subscription required for Cloud Sync");
+    }
+    await AsyncStorage.setItem('@is_sync_active', active ? 'true' : 'false');
+    setIsSyncActive(active);
+  }, [isPro]);
+
   return (
-    <SyncContext.Provider value={{ syncCode, isPro, clockOffset, setSyncCode, upgradeToPro, downgradeFromPro }}>
+    <SyncContext.Provider value={{ 
+      syncCode, 
+      isPro, 
+      isSyncActive, 
+      clockOffset, 
+      setSyncCode, 
+      upgradeToPro, 
+      downgradeFromPro,
+      toggleSync 
+    }}>
       {children}
     </SyncContext.Provider>
   );

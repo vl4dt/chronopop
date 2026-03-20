@@ -12,7 +12,7 @@ import { useSync } from '../context/SyncContext';
 
 export const StatsScreen = () => {
   const { colors } = useTheme();
-  const { syncCode, isPremiumSync, enablePremiumSync, disablePremiumSync, setSyncCode } = useSync();
+  const { syncCode, isSyncActive, toggleSync, setSyncCode, isPro } = useSync();
   const [localStats, setLocalStats] = useState({ focusMinutes: 0, treatments: 0 });
   const [refreshing, setRefreshing] = useState(false);
   const [inputCode, setInputCode] = useState('');
@@ -20,7 +20,7 @@ export const StatsScreen = () => {
   // Real-time Convex stats subscription (when premium sync is on)
   const convexStats = useQuery(
     api.db.getGlobalStats,
-    syncCode && isPremiumSync ? { deviceId: syncCode } : 'skip'
+    syncCode && isSyncActive ? { deviceId: syncCode } : 'skip'
   );
 
   const loadLocalStats = async () => {
@@ -36,7 +36,7 @@ export const StatsScreen = () => {
     setRefreshing(false);
   };
 
-  const stats = isPremiumSync && convexStats
+  const stats = isSyncActive && convexStats
     ? { focusMinutes: convexStats.totalFocusMinutes, treatments: convexStats.treatmentsCompleted }
     : localStats;
 
@@ -44,38 +44,30 @@ export const StatsScreen = () => {
   const minutes = stats.focusMinutes % 60;
 
   const handleToggleSync = async (value: boolean) => {
+    if (!isPro && value) {
+      Alert.alert("Pro Required", "Cloud Sync is a Pro feature. Please upgrade to enable it.");
+      return;
+    }
+    
     if (value) {
-      await enablePremiumSync();
+      await toggleSync(true);
+      Alert.alert("Sync Enabled", "Your data will now be synced to the cloud. Local data will be migrated automatically.");
     } else {
       Alert.alert('Disable Sync?', 'Your data will remain offline only. You can re-enable sync at any time.', [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Disable', style: 'destructive', onPress: disablePremiumSync },
+        { text: 'Disable', style: 'destructive', onPress: () => toggleSync(false) },
       ]);
     }
-  };
-
-  const handlePush = async () => {
-    setRefreshing(true);
-    const ok = await pushLocalDataToCloud(syncCode);
-    setRefreshing(false);
-    if (ok) Alert.alert("Backup Sent!", "Your local data is now live in the cloud under your sync code.");
-    else Alert.alert("Error", "Failed to backup. Check your internet connection.");
   };
 
   const handlePull = async () => {
     if (!inputCode || inputCode.replace('-', '').length < 8) return Alert.alert("Invalid Code", "Please enter a valid sync code.");
     setRefreshing(true);
-    const ok = await pullCloudDataToLocal(inputCode.toUpperCase());
+    // Setting the sync code will trigger the useSync init or we can call it manually
+    await setSyncCode(inputCode.toUpperCase());
     setRefreshing(false);
-    if (ok) {
-      await setDeviceSyncCode(inputCode.toUpperCase());
-      await setSyncCode(inputCode.toUpperCase());
-      setInputCode('');
-      Alert.alert("Linked!", "This device is now syncing with your other device in real-time.");
-      if (!isPremiumSync) await enablePremiumSync();
-    } else {
-      Alert.alert("Not Found", "No backup found for this code. Check the code and try again.");
-    }
+    setInputCode('');
+    Alert.alert("Code Set", "Your device is now linked to code " + inputCode.toUpperCase());
   };
 
   return (
@@ -121,18 +113,18 @@ export const StatsScreen = () => {
         <View style={[styles.syncCard, { backgroundColor: colors.surface0, shadowColor: colors.crust }]}>
           {/* Header with toggle */}
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-            <Ionicons name="cloud" size={28} color={isPremiumSync ? colors.sky : colors.subtext0} style={{ marginRight: 12 }} />
+            <Ionicons name="cloud" size={28} color={isSyncActive ? colors.sky : colors.subtext0} style={{ marginRight: 12 }} />
             <View style={{ flex: 1 }}>
               <ThemeText variant="h2" colorKey="text">Real-Time Cloud Sync</ThemeText>
-              <ThemeText variant="caption" colorKey={isPremiumSync ? 'sky' : 'subtext0'}>
-                {isPremiumSync ? '● Live – syncing across devices' : '○ Offline only'}
+              <ThemeText variant="caption" colorKey={isSyncActive ? 'sky' : 'subtext0'}>
+                {isSyncActive ? '● Live – syncing across devices' : '○ Offline only'}
               </ThemeText>
             </View>
             <Switch
-              value={isPremiumSync}
+              value={isSyncActive}
               onValueChange={handleToggleSync}
               trackColor={{ false: colors.surface2, true: colors.sky }}
-              thumbColor={isPremiumSync ? colors.base : colors.subtext0}
+              thumbColor={isSyncActive ? colors.base : colors.subtext0}
             />
           </View>
 
@@ -143,11 +135,11 @@ export const StatsScreen = () => {
           <View style={[styles.codeBox, { backgroundColor: colors.surface1 }]}>
             <ThemeText variant="caption" colorKey="subtext0">YOUR SYNC CODE</ThemeText>
             <ThemeText variant="h1" colorKey="sky" style={{ letterSpacing: 4, marginVertical: 8 }}>{syncCode}</ThemeText>
-            <TouchableOpacity style={[styles.syncBtn, { backgroundColor: isPremiumSync ? colors.sky : colors.surface2 }]} onPress={handlePush}>
-              <ThemeText variant="body" colorKey="base" style={{ fontWeight: 'bold' }}>
-                {isPremiumSync ? 'Upload Local Data to Cloud' : 'Enable Sync to Use'}
-              </ThemeText>
-            </TouchableOpacity>
+            <View style={{ padding: 12, backgroundColor: colors.surface0, borderRadius: 12, width: '100%', alignItems: 'center' }}>
+               <ThemeText variant="caption" colorKey="subtext0">
+                 {isSyncActive ? "Your data is automatically backed up." : "Enable sync to back up your data."}
+               </ThemeText>
+            </View>
           </View>
 
           <View style={[styles.pullBox, { borderColor: colors.surface1 }]}>

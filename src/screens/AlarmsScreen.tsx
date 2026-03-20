@@ -5,21 +5,18 @@ import { ThemeColors } from '../theme/colors';
 import { ThemeText } from '../components/ThemeText';
 import { ThemeColorPicker } from '../components/ThemeColorPicker';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../convex/_generated/api';
 import { useSync } from '../context/SyncContext';
+import { usePersistentAlarms } from '../hooks/usePersistentData';
 import { ProUpgradeModal } from '../components/ProUpgradeModal';
 import { AdBanner } from '../components/AdBanner';
+import { SyncStatusIndicator } from '../components/SyncStatusIndicator';
 import { Doc, Id } from '../../convex/_generated/dataModel';
 
 export const AlarmsScreen = () => {
   const { colors } = useTheme();
-  const { syncCode, isPro } = useSync();
+  const { syncCode, isPro, isSyncActive } = useSync();
   
-  const alarms = useQuery(api.db.getAlarms, { deviceId: syncCode }) || [];
-  const createAlarmMutable = useMutation(api.db.createAlarm);
-  const updateAlarmMutable = useMutation(api.db.updateAlarm);
-  const deleteAlarmMutable = useMutation(api.db.deleteAlarm);
+  const { alarms, create, update, remove } = usePersistentAlarms();
 
   const [pickerVisible, setPickerVisible] = useState(false);
   const [selectedAlarmId, setSelectedAlarmId] = useState<Id<"alarms"> | null>(null);
@@ -52,7 +49,7 @@ export const AlarmsScreen = () => {
   const toggleAlarm = async (id: Id<"alarms">) => {
     const alarm = alarms.find(a => a._id === id);
     if (alarm) {
-      updateAlarmMutable({ id, enabled: !alarm.enabled });
+      update({ id, enabled: !alarm.enabled });
     }
   };
 
@@ -63,7 +60,7 @@ export const AlarmsScreen = () => {
     }
     const now = new Date();
     now.setHours(7, 0, 0, 0);
-    createAlarmMutable({
+    create({
       deviceId: syncCode,
       timeUnixMs: now.getTime(),
       enabled: true,
@@ -80,7 +77,7 @@ export const AlarmsScreen = () => {
     const newTime = new Date(alarm.timeUnixMs);
     newTime.setHours(newTime.getHours() + hours);
     newTime.setMinutes(newTime.getMinutes() + minutes);
-    updateAlarmMutable({ id: editingAlarmId, timeUnixMs: newTime.getTime() });
+    update({ id: editingAlarmId, timeUnixMs: newTime.getTime() });
   };
 
   const renderItem = ({ item }: { item: Doc<"alarms"> }) => {
@@ -124,14 +121,14 @@ export const AlarmsScreen = () => {
           <TouchableOpacity 
             style={[styles.missionBtn, { backgroundColor: item.missionEnabled ? colors.peach : colors.surface1 }]}
             onPress={() => {
-              updateAlarmMutable({ id: item._id, missionEnabled: !item.missionEnabled });
+              update({ id: item._id, missionEnabled: !item.missionEnabled });
             }}
           >
             <ThemeText variant="caption" colorKey={item.missionEnabled ? 'base' : 'text'} style={{ fontWeight: 'bold' }}>
               {item.missionEnabled ? 'Mission ON' : 'Mission OFF'}
             </ThemeText>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => deleteAlarmMutable({ id: item._id })}>
+          <TouchableOpacity onPress={() => remove({ id: item._id })}>
             <Ionicons name="trash-outline" size={24} color={colors.red} />
           </TouchableOpacity>
         </View>
@@ -141,6 +138,7 @@ export const AlarmsScreen = () => {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.base }]}>
+      <SyncStatusIndicator />
       <FlatList
         data={alarms}
         ListHeaderComponent={<AdBanner onPress={() => setProModalVisible(true)} />}
@@ -162,7 +160,7 @@ export const AlarmsScreen = () => {
           onClose={() => setPickerVisible(false)}
           selectedColorKey={alarms.find(a => a._id === selectedAlarmId)?.colorKey as keyof ThemeColors}
           onSelectColor={(colorKey) => {
-            updateAlarmMutable({ id: selectedAlarmId, colorKey });
+            update({ id: selectedAlarmId, colorKey });
           }}
         />
       )}

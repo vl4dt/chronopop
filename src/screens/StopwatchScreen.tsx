@@ -5,13 +5,15 @@ import { ThemeColors } from '../theme/colors';
 import { ThemeText } from '../components/ThemeText';
 import { ThemeColorPicker } from '../components/ThemeColorPicker';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../convex/_generated/api';
 import { useSync } from '../context/SyncContext';
+import { usePersistentStopwatches } from '../hooks/usePersistentData';
 import { useSyncedClock } from '../hooks/useSyncedClock';
+import { useQuery } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 import { Doc, Id } from '../../convex/_generated/dataModel';
 import { ProUpgradeModal } from '../components/ProUpgradeModal';
 import { AdBanner } from '../components/AdBanner';
+import { SyncStatusIndicator } from '../components/SyncStatusIndicator';
 
 const COLOR_OPTIONS: (keyof ThemeColors)[] = ['blue', 'lavender', 'sapphire', 'sky', 'teal', 'green', 'yellow', 'peach', 'maroon', 'red', 'mauve', 'pink', 'flamingo', 'rosewater'];
 
@@ -32,16 +34,21 @@ const StopwatchCard = ({
   onPickColor,
   onAddLap
 }: { 
-  sw: Doc<"stopwatches">;
-  onDelete: (id: Id<"stopwatches">) => void;
-  onToggle: (id: Id<"stopwatches">, isRunning: boolean) => void;
-  onReset: (id: Id<"stopwatches">) => void;
-  onUpdate: (id: Id<"stopwatches">, patch: any) => void;
-  onPickColor: (id: Id<"stopwatches">) => void;
-  onAddLap: (id: Id<"stopwatches">, timeMs: number) => void;
+  sw: any;
+  onDelete: (id: string) => void;
+  onToggle: (id: string, isRunning: boolean) => void;
+  onReset: (id: string) => void;
+  onUpdate: (id: string, patch: any) => void;
+  onPickColor: (id: string) => void;
+  onAddLap: (id: string, timeMs: number) => void;
 }) => {
   const { colors } = useTheme();
-  const laps = useQuery(api.db.getStopwatchLaps, { stopwatchId: sw._id }) || [];
+  const { isSyncActive } = useSync();
+  
+  // Conditionally fetch laps if syncing, otherwise use embedded ones
+  const convexLaps = useQuery(api.db.getStopwatchLaps, isSyncActive ? { stopwatchId: sw._id } : 'skip' as any);
+  const laps = isSyncActive ? (convexLaps || []) : (sw.laps || []);
+
   const displayTime = useSyncedClock({
     startTimeMs: sw.startTimeMs,
     baseTimeMs: sw.baseTimeMs,
@@ -81,7 +88,7 @@ const StopwatchCard = ({
 
       {laps.length > 0 && (
         <View style={styles.lapsContainer}>
-          {laps.slice(0, 3).map((lap, index) => (
+          {laps.slice(0, 3).map((lap: { _id: string, timeMs: number }, index: number) => (
             <View key={lap._id} style={[styles.lapRow, { borderBottomColor: colors.surface1 }]}>
               <ThemeText variant="caption" colorKey="subtext0">Lap {laps.length - index}</ThemeText>
               <ThemeText variant="body" colorKey="text">{formatTime(lap.timeMs)}</ThemeText>
@@ -101,16 +108,10 @@ export const StopwatchScreen = () => {
   const { colors } = useTheme();
   const { syncCode, isPro } = useSync();
   
-  const stopwatches = useQuery(api.db.getStopwatches, { deviceId: syncCode }) || [];
-  const createStopwatchMutable = useMutation(api.db.createStopwatch);
-  const deleteStopwatchMutable = useMutation(api.db.deleteStopwatch);
-  const toggleStopwatchMutable = useMutation(api.db.toggleStopwatch);
-  const resetStopwatchMutable = useMutation(api.db.resetStopwatch);
-  const addStopwatchLapMutable = useMutation(api.db.addStopwatchLap);
-  const updateStopwatchMutable = useMutation(api.db.updateStopwatch);
+  const { stopwatches, create, remove, toggle, reset, addLap, update } = usePersistentStopwatches();
 
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [selectedId, setSelectedId] = useState<Id<"stopwatches"> | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [proModalVisible, setProModalVisible] = useState(false);
 
   const addStopwatch = () => {
@@ -119,7 +120,7 @@ export const StopwatchScreen = () => {
       return;
     }
     const randomColor = COLOR_OPTIONS[Math.floor(Math.random() * COLOR_OPTIONS.length)];
-    createStopwatchMutable({
+    create({
       deviceId: syncCode,
       name: `Stopwatch ${stopwatches.length + 1}`,
       colorKey: randomColor,
@@ -128,6 +129,7 @@ export const StopwatchScreen = () => {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.base }]}>
+      <SyncStatusIndicator />
       <FlatList
         data={stopwatches}
         ListHeaderComponent={<AdBanner onPress={() => setProModalVisible(true)} />}
@@ -135,12 +137,12 @@ export const StopwatchScreen = () => {
         renderItem={({ item }) => (
           <StopwatchCard 
             sw={item} 
-            onDelete={(id) => deleteStopwatchMutable({ id })}
-            onToggle={(id, isRunning) => toggleStopwatchMutable({ id, isRunning })}
-            onReset={(id) => resetStopwatchMutable({ id })}
-            onUpdate={(id, patch) => updateStopwatchMutable ? updateStopwatchMutable({ id, ...patch }) : null}
+            onDelete={(id) => remove({ id })}
+            onToggle={(id, isRunning) => toggle({ id, isRunning })}
+            onReset={(id) => reset({ id })}
+            onUpdate={(id, patch) => update({ id, ...patch })}
             onPickColor={(id) => { setSelectedId(id); setPickerVisible(true); }}
-            onAddLap={(id, timeMs) => addStopwatchLapMutable({ stopwatchId: id, timeMs })}
+            onAddLap={(id, timeMs) => addLap({ stopwatchId: id, timeMs })}
           />
         )}
         contentContainerStyle={styles.listContent}
@@ -165,7 +167,7 @@ export const StopwatchScreen = () => {
           onClose={() => setPickerVisible(false)}
           selectedColorKey={stopwatches.find(s => s._id === selectedId)?.colorKey as keyof ThemeColors}
           onSelectColor={(colorKey) => {
-            if (updateStopwatchMutable) updateStopwatchMutable({ id: selectedId, colorKey });
+            update({ id: selectedId, colorKey });
           }}
         />
       )}

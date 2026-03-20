@@ -27,17 +27,26 @@ export const configureNotifications = () => {
 
 // ─── Permission request ───────────────────────────────────────────────────────
 export const requestNotificationPermissions = async (): Promise<boolean> => {
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  if (existing === 'granted') return true;
-  const { status } = await Notifications.requestPermissionsAsync({
-    ios: {
-      allowAlert: true,
-      allowBadge: true,
-      allowSound: true,
-      allowCriticalAlerts: true, // Lets alarms bypass Do Not Disturb
-    },
-  });
-  return status === 'granted';
+  try {
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    if (existing === 'granted') return true;
+    const { status } = await Notifications.requestPermissionsAsync({
+      ios: {
+        allowAlert: true,
+        allowBadge: true,
+        allowSound: true,
+        allowCriticalAlerts: true, // Lets alarms bypass Do Not Disturb
+      },
+    });
+    return status === 'granted';
+  } catch (err: any) {
+    if (err.message.includes('Push notifications')) {
+      console.warn('[NotificationService] Core notifications only supported (Expo Go on Android)');
+      return true; // Assume true for local if we can't check
+    }
+    console.warn('[NotificationService] Permission error:', err);
+    return false;
+  }
 };
 
 // ─── Schedule a single alarm notification ────────────────────────────────────
@@ -115,13 +124,17 @@ export const registerNotifId = (alarmId: string, notifId: string) => {
 // ─── Android notification channel (call once at startup) ─────────────────────
 export const setupAndroidChannel = async () => {
   if (Platform.OS !== 'android') return;
-  await Notifications.setNotificationChannelAsync('alarm', {
-    name: 'Alarms',
-    importance: Notifications.AndroidImportance.MAX,
-    sound: 'alarm.mp3',
-    vibrationPattern: [0, 500, 200, 500],
-    enableVibrate: true,
-    bypassDnd: true, // Bypasses Do Not Disturb on Android
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-  });
+  try {
+    await Notifications.setNotificationChannelAsync('alarm', {
+      name: 'Alarms',
+      importance: Notifications.AndroidImportance.MAX,
+      sound: 'alarm.mp3',
+      vibrationPattern: [0, 500, 200, 500],
+      enableVibrate: true,
+      bypassDnd: true, // Bypasses Do Not Disturb on Android
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+  } catch (err) {
+    console.warn('[NotificationService] Android channel setup skipped (Expo Go limit)');
+  }
 };

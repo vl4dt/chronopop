@@ -1,75 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, ScrollView, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, ScrollView, Modal, TextInput, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { useTheme } from '../theme/ThemeContext';
 import { ThemeColors } from '../theme/colors';
 import { ThemeText } from '../components/ThemeText';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Crypto from 'expo-crypto';
 import { logStat } from '../utils/stats';
 import { updateRoutinesWidget } from '../utils/WidgetService';
 import { useSync } from '../context/SyncContext';
-
-export type Profile = {
-  id: string;
-  name: string;
-  type: 'Person' | 'Pet';
-  colorKey: keyof ThemeColors;
-};
-
-export type TreatmentReminder = {
-  id: string;
-  profileId: string;
-  title: string;
-  timeHour: number;
-  timeMinute: number;
-  durationMinutes?: number;
-  completedToday: boolean;
-};
-
-const defaultProfiles: Profile[] = [
-  { id: 'p1', name: 'Me', type: 'Person', colorKey: 'sapphire' },
-  { id: 'p2', name: 'Luna (Cat)', type: 'Pet', colorKey: 'rosewater' },
-];
-
-const defaultReminders: TreatmentReminder[] = [
-  { id: 'r1', profileId: 'p1', title: 'Stretch / Yoga', timeHour: 8, timeMinute: 0, durationMinutes: 15, completedToday: false },
-  { id: 'r2', profileId: 'p2', title: 'Heartworm Pill', timeHour: 10, timeMinute: 0, completedToday: true },
-  { id: 'r3', profileId: 'p2', title: 'Nebulizer Therapy', timeHour: 18, timeMinute: 30, durationMinutes: 10, completedToday: false },
-];
-
-// -----------------------------------------------------------------------
-// Helper: map Convex record (with _id) to local shape
-// -----------------------------------------------------------------------
-const mapProfile = (p: any): Profile => ({
-  id: p._id as string,
-  name: p.name,
-  type: p.type as 'Person' | 'Pet',
-  colorKey: p.colorKey as keyof ThemeColors,
-});
-
-const mapReminder = (r: any): TreatmentReminder => ({
-  id: r._id as string,
-  profileId: r.profileId as string,
-  title: r.title,
-  timeHour: r.timeHour,
-  timeMinute: r.timeMinute,
-  durationMinutes: r.durationMinutes,
-  completedToday: r.completedToday,
-});
+import { usePersistentProfiles, usePersistentReminders } from '../hooks/usePersistentData';
+import { SyncStatusIndicator } from '../components/SyncStatusIndicator';
 
 export const RemindersScreen = () => {
   const { colors } = useTheme();
-  const { syncCode, isPremiumSync } = useSync();
+  const { syncCode, isSyncActive, isPro } = useSync();
   const navigation = useNavigation<BottomTabNavigationProp<any>>();
 
-  // ── Local (offline) state ──────────────────────────────────────────────
-  const [localProfiles, setLocalProfiles] = useState<Profile[]>([]);
-  const [localReminders, setLocalReminders] = useState<TreatmentReminder[]>([]);
+  const { profiles, create: createProfile, remove: removeProfile, update: updateProfile } = usePersistentProfiles();
+  const { reminders, create: createReminder, remove: removeReminder, update: updateReminder, markComplete } = usePersistentReminders();
+
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
 
   // ── Add Routine modal state ────────────────────────────────────────────
@@ -82,67 +33,10 @@ export const RemindersScreen = () => {
 
   // ── Profile management modal state ────────────────────────────────────
   const [profileModalVisible, setProfileModalVisible] = useState(false);
-  const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
+  const [editingProfile, setEditingProfile] = useState<any | null>(null);
   const [profileName, setProfileName] = useState('');
   const [profileType, setProfileType] = useState<'Person' | 'Pet'>('Person');
   const [profileColor, setProfileColor] = useState<keyof ThemeColors>('blue');
-
-  // ── Convex real-time hooks (only active when syncCode is non-empty) ────
-  const convexProfiles = useQuery(
-    api.db.getProfiles,
-    syncCode && isPremiumSync ? { deviceId: syncCode } : 'skip'
-  );
-  const convexReminders = useQuery(
-    api.db.getReminders,
-    syncCode && isPremiumSync ? { deviceId: syncCode } : 'skip'
-  );
-
-  // Convex mutations
-  const convexCreateProfile = useMutation(api.db.createProfile);
-  const convexRemoveProfile = useMutation(api.db.removeProfile);
-  const convexSaveReminder = useMutation(api.db.saveReminder);
-  const convexMarkComplete = useMutation(api.db.markReminderComplete);
-  const convexDeleteReminder = useMutation(api.db.deleteReminder);
-  const convexUpdateProfile = useMutation(api.db.updateProfile);
-  const convexUpdateReminder = useMutation(api.db.updateReminder);
-
-  // ── Seed local storage on first launch ────────────────────────────────
-  useEffect(() => {
-    const init = async () => {
-      const p = await AsyncStorage.getItem('@profiles');
-      const r = await AsyncStorage.getItem('@reminders');
-      if (p) setLocalProfiles(JSON.parse(p));
-      else {
-        setLocalProfiles(defaultProfiles);
-        await AsyncStorage.setItem('@profiles', JSON.stringify(defaultProfiles));
-      }
-      if (r) setLocalReminders(JSON.parse(r));
-      else {
-        setLocalReminders(defaultReminders);
-        await AsyncStorage.setItem('@reminders', JSON.stringify(defaultReminders));
-      }
-    };
-    init();
-  }, []);
-
-  // ── Sync Convex real-time data to local state + AsyncStorage ──────────
-  useEffect(() => {
-    if (!isPremiumSync || !convexProfiles) return;
-    const mapped = convexProfiles.map(mapProfile);
-    setLocalProfiles(mapped);
-    AsyncStorage.setItem('@profiles', JSON.stringify(mapped));
-  }, [convexProfiles, isPremiumSync]);
-
-  useEffect(() => {
-    if (!isPremiumSync || !convexReminders) return;
-    const mapped = convexReminders.map(mapReminder);
-    setLocalReminders(mapped);
-    AsyncStorage.setItem('@reminders', JSON.stringify(mapped));
-  }, [convexReminders, isPremiumSync]);
-
-  // ── Derived state ─────────────────────────────────────────────────────
-  const profiles = localProfiles;
-  const reminders = localReminders;
 
   // Update Widget when reminders change
   useEffect(() => {
@@ -158,37 +52,13 @@ export const RemindersScreen = () => {
     }
   }, [reminders]);
 
-  // ── Save helpers (write to both stores) ───────────────────────────────
-  const saveProfilesLocal = async (next: Profile[]) => {
-    setLocalProfiles(next);
-    await AsyncStorage.setItem('@profiles', JSON.stringify(next));
-  };
-
-  const saveRemindersLocal = async (next: TreatmentReminder[]) => {
-    setLocalReminders(next);
-    await AsyncStorage.setItem('@reminders', JSON.stringify(next));
-  };
-
   // ── Toggle completion ─────────────────────────────────────────────────
   const toggleCompletion = async (id: string) => {
-    const reminder = reminders.find(r => r.id === id);
+    const reminder = reminders.find(r => r._id === id);
     if (!reminder) return;
     const nowDone = !reminder.completedToday;
     logStat('treatment', nowDone ? 1 : -1);
-
-    if (isPremiumSync && syncCode) {
-      // IDs from Convex are the actual `_id`s; pass directly
-      try {
-        await convexMarkComplete({ id: id as any, completed: nowDone, deviceId: syncCode });
-      } catch (e) {
-        console.warn('Convex mark complete failed, saving locally', e);
-        const next = reminders.map(r => r.id === id ? { ...r, completedToday: nowDone } : r);
-        await saveRemindersLocal(next);
-      }
-    } else {
-      const next = reminders.map(r => r.id === id ? { ...r, completedToday: nowDone } : r);
-      await saveRemindersLocal(next);
-    }
+    await markComplete({ id, completed: nowDone, deviceId: syncCode });
   };
 
   // ── Create routine ────────────────────────────────────────────────────
@@ -198,34 +68,18 @@ export const RemindersScreen = () => {
       return;
     }
     setAddVisible(false);
-    setNewTitle('');
-    setNewDuration('');
-
-    if (isPremiumSync && syncCode) {
-      try {
-        await convexSaveReminder({
-          deviceId: syncCode,
-          profileId: newProfileId as any,
-          title: newTitle,
-          timeHour: parseInt(newHour) || 0,
-          timeMinute: parseInt(newMinute) || 0,
-          durationMinutes: newDuration ? parseInt(newDuration) : undefined,
-          completedToday: false,
-        });
-        return; // Convex subscription will update UI
-      } catch (e) { console.warn('Convex create routine failed, saving locally', e); }
-    }
-
-    const newRoutine: TreatmentReminder = {
-      id: Crypto.randomUUID(),
-      profileId: newProfileId,
+    
+    await createReminder({
+      deviceId: syncCode,
+      profileId: newProfileId as any,
       title: newTitle,
       timeHour: parseInt(newHour) || 0,
       timeMinute: parseInt(newMinute) || 0,
       durationMinutes: newDuration ? parseInt(newDuration) : undefined,
-      completedToday: false,
-    };
-    await saveRemindersLocal([...reminders, newRoutine]);
+    });
+
+    setNewTitle('');
+    setNewDuration('');
   };
 
   // ── Profile CRUD ──────────────────────────────────────────────────────
@@ -233,7 +87,7 @@ export const RemindersScreen = () => {
     setEditingProfile(null); setProfileName(''); setProfileType('Person'); setProfileColor('blue');
     setProfileModalVisible(true);
   };
-  const openEditProfile = (p: Profile) => {
+  const openEditProfile = (p: any) => {
     setEditingProfile(p); setProfileName(p.name); setProfileType(p.type); setProfileColor(p.colorKey);
     setProfileModalVisible(true);
   };
@@ -242,22 +96,10 @@ export const RemindersScreen = () => {
     if (!profileName.trim()) { Alert.alert('Missing Info', 'Please provide a name.'); return; }
     setProfileModalVisible(false);
 
-    if (isPremiumSync && syncCode) {
-      try {
-        if (editingProfile) {
-          await convexUpdateProfile({ id: editingProfile.id as any, name: profileName, type: profileType, colorKey: profileColor });
-        } else {
-          await convexCreateProfile({ deviceId: syncCode, name: profileName, type: profileType, colorKey: profileColor });
-        }
-        return; // subscription updates UI
-      } catch (e) { console.warn('Convex profile save failed, saving locally', e); }
-    }
-
     if (editingProfile) {
-      await saveProfilesLocal(profiles.map(p => p.id === editingProfile.id ? { ...p, name: profileName, type: profileType, colorKey: profileColor } : p));
+      await updateProfile({ id: editingProfile._id, name: profileName, type: profileType, colorKey: profileColor });
     } else {
-      const newP: Profile = { id: Crypto.randomUUID(), name: profileName, type: profileType, colorKey: profileColor };
-      await saveProfilesLocal([...profiles, newP]);
+      await createProfile({ deviceId: syncCode, name: profileName, type: profileType, colorKey: profileColor });
     }
   };
 
@@ -267,28 +109,22 @@ export const RemindersScreen = () => {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
         setProfileModalVisible(false);
-        if (selectedProfileId === editingProfile.id) setSelectedProfileId(null);
+        if (selectedProfileId === editingProfile._id) setSelectedProfileId(null);
 
-        if (isPremiumSync && syncCode) {
-          try {
-            // Delete all reminders for this profile first
-            const toDelete = reminders.filter(r => r.profileId === editingProfile.id);
-            await Promise.all(toDelete.map(r => convexDeleteReminder({ id: r.id as any })));
-            await convexRemoveProfile({ id: editingProfile.id as any });
-            return;
-          } catch (e) { console.warn('Convex delete failed, removing locally', e); }
+        // Delete all reminders for this profile first
+        const toDelete = reminders.filter(r => r.profileId === editingProfile._id);
+        for (const r of toDelete) {
+           await removeReminder({ id: r._id });
         }
-
-        await saveProfilesLocal(profiles.filter(p => p.id !== editingProfile.id));
-        await saveRemindersLocal(reminders.filter(r => r.profileId !== editingProfile.id));
+        await removeProfile({ id: editingProfile._id });
       }}
     ]);
   };
 
-  const getProfile = (id: string) => profiles.find(p => p.id === id);
+  const getProfile = (id: string) => profiles.find(p => p._id === id);
 
   // ── Render ────────────────────────────────────────────────────────────
-  const renderReminder = ({ item }: { item: TreatmentReminder }) => {
+  const renderReminder = ({ item }: { item: any }) => {
     const profile = getProfile(item.profileId);
     if (!profile) return null;
     const timeStr = `${item.timeHour.toString().padStart(2, '0')}:${item.timeMinute.toString().padStart(2, '0')}`;
@@ -319,7 +155,7 @@ export const RemindersScreen = () => {
             )}
             <TouchableOpacity
               style={[styles.checkBtn, { backgroundColor: item.completedToday ? colors[pColor] : colors.surface1 }]}
-              onPress={() => toggleCompletion(item.id)}
+              onPress={() => toggleCompletion(item._id)}
             >
               <Ionicons name="checkmark" size={24} color={item.completedToday ? colors.base : colors.subtext0} />
             </TouchableOpacity>
@@ -333,17 +169,9 @@ export const RemindersScreen = () => {
     ? reminders.filter(r => r.profileId === selectedProfileId)
     : reminders;
 
-  const isLoading = isPremiumSync && (convexProfiles === undefined || convexReminders === undefined);
-
   return (
     <View style={[styles.container, { backgroundColor: colors.base }]}>
-      {/* Premium sync indicator */}
-      {isPremiumSync && (
-        <View style={[styles.syncBadge, { backgroundColor: colors.surface0 }]}>
-          <Ionicons name="cloud" size={14} color={colors.sky} />
-          <ThemeText variant="caption" colorKey="sky" style={{ marginLeft: 6 }}>Live Sync Active</ThemeText>
-        </View>
-      )}
+      <SyncStatusIndicator />
 
       {/* Profile tabs */}
       <View style={styles.profilesHeader}>
@@ -356,12 +184,12 @@ export const RemindersScreen = () => {
           </TouchableOpacity>
           {profiles.map(p => (
             <TouchableOpacity
-              key={p.id}
-              style={[styles.profileChip, { backgroundColor: selectedProfileId === p.id ? colors[p.colorKey as keyof ThemeColors] : colors.surface0 }]}
-              onPress={() => setSelectedProfileId(p.id)}
+              key={p._id}
+              style={[styles.profileChip, { backgroundColor: selectedProfileId === p._id ? colors[p.colorKey as keyof ThemeColors] : colors.surface0 }]}
+              onPress={() => setSelectedProfileId(p._id)}
               onLongPress={() => openEditProfile(p)}
             >
-              <ThemeText variant="body" colorKey={selectedProfileId === p.id ? 'base' : 'text'}>{p.name}</ThemeText>
+              <ThemeText variant="body" colorKey={selectedProfileId === p._id ? 'base' : 'text'}>{p.name}</ThemeText>
             </TouchableOpacity>
           ))}
           <TouchableOpacity
@@ -373,19 +201,12 @@ export const RemindersScreen = () => {
         </ScrollView>
       </View>
 
-      {isLoading ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color={colors.sky} />
-          <ThemeText variant="body" colorKey="subtext0" style={{ marginTop: 16 }}>Connecting to Live Sync...</ThemeText>
-        </View>
-      ) : (
         <FlatList
           data={[...filteredReminders].sort((a, b) => (a.timeHour * 60 + a.timeMinute) - (b.timeHour * 60 + b.timeMinute))}
-          keyExtractor={item => item.id}
+          keyExtractor={item => item._id}
           renderItem={renderReminder}
           contentContainerStyle={styles.listContent}
         />
-      )}
 
       <TouchableOpacity
         style={[styles.fab, { backgroundColor: colors.mauve, shadowColor: colors.crust }]}
@@ -412,11 +233,11 @@ export const RemindersScreen = () => {
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginBottom: 16 }}>
                 {profiles.map(p => (
                   <TouchableOpacity
-                    key={p.id}
-                    style={[styles.profileChip, { backgroundColor: newProfileId === p.id ? colors[p.colorKey as keyof ThemeColors] : colors.surface0 }]}
-                    onPress={() => setNewProfileId(p.id)}
+                    key={p._id}
+                    style={[styles.profileChip, { backgroundColor: newProfileId === p._id ? colors[p.colorKey as keyof ThemeColors] : colors.surface0 }]}
+                    onPress={() => setNewProfileId(p._id)}
                   >
-                    <ThemeText variant="body" colorKey={newProfileId === p.id ? 'base' : 'text'}>{p.name}</ThemeText>
+                    <ThemeText variant="body" colorKey={newProfileId === p._id ? 'base' : 'text'}>{p.name}</ThemeText>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
