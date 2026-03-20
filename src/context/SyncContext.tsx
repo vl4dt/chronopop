@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Purchases, { PurchasesPackage, CustomerInfo, PurchasesOfferings } from 'react-native-purchases';
-import { getDeviceSyncCode } from '../utils/sync';
+import { getDeviceSyncCode, generateShortCode } from '../utils/sync';
 import { api } from '../../convex/_generated/api';
 import { useQuery, useMutation } from 'convex/react';
 import { Platform, Alert } from 'react-native';
@@ -12,10 +12,13 @@ interface SyncContextType {
   isSyncActive: boolean;
   clockOffset: number;
   offerings: PurchasesOfferings | null;
+  hapticsEnabled: boolean;
   setSyncCode: (code: string) => Promise<void>;
   purchasePackage: (pkg: PurchasesPackage) => Promise<void>;
   restorePurchases: () => Promise<void>;
   toggleSync: (active: boolean) => Promise<void>;
+  setHapticsEnabled: (enabled: boolean) => Promise<void>;
+  resetSyncCode: () => Promise<string>;
 }
 
 const SyncContext = createContext<SyncContextType>({
@@ -24,10 +27,13 @@ const SyncContext = createContext<SyncContextType>({
   isSyncActive: false,
   clockOffset: 0,
   offerings: null,
+  hapticsEnabled: true,
   setSyncCode: async () => {},
   purchasePackage: async () => {},
   restorePurchases: async () => {},
   toggleSync: async () => {},
+  setHapticsEnabled: async () => {},
+  resetSyncCode: async () => '',
 });
 
 export const useSync = () => useContext(SyncContext);
@@ -38,6 +44,7 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const [isSyncActive, setIsSyncActive] = useState(false);
   const [clockOffset, setClockOffset] = useState(0);
   const [offerings, setOfferings] = useState<PurchasesOfferings | null>(null);
+  const [hapticsEnabled, setHapticsEnabledState] = useState(true);
 
   const serverTime = useQuery(api.db.getServerTime);
   const cloudProfile = useQuery(api.db.getSyncProfile, { deviceId: syncCode });
@@ -96,7 +103,13 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       const code = await getDeviceSyncCode();
       setSyncCodeState(code);
       
-      const syncStatus = await AsyncStorage.getItem('@is_sync_active');
+      const [syncStatus, hapticsStatus] = await Promise.all([
+        AsyncStorage.getItem('@is_sync_active'),
+        AsyncStorage.getItem('@haptics_enabled')
+      ]);
+
+      if (hapticsStatus !== null) setHapticsEnabledState(hapticsStatus === 'true');
+      
       // Sync is only active for Pro users (local or cloud) who have enabled it
       setIsSyncActive(syncStatus === 'true' && isPro);
     };
@@ -146,6 +159,19 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     setIsSyncActive(active);
   }, [isPro]);
 
+  const setHapticsEnabled = useCallback(async (enabled: boolean) => {
+    await AsyncStorage.setItem('@haptics_enabled', enabled ? 'true' : 'false');
+    setHapticsEnabledState(enabled);
+  }, []);
+  const resetSyncCode = useCallback(async () => {
+    const newCode = generateShortCode();
+    await AsyncStorage.setItem('@sync_code', newCode);
+    await AsyncStorage.setItem('@is_sync_active', 'false');
+    setSyncCodeState(newCode);
+    setIsSyncActive(false);
+    return newCode;
+  }, []);
+
   return (
     <SyncContext.Provider value={{ 
       syncCode, 
@@ -153,10 +179,13 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       isSyncActive, 
       clockOffset, 
       offerings,
+      hapticsEnabled,
       setSyncCode, 
       purchasePackage, 
       restorePurchases,
-      toggleSync 
+      toggleSync,
+      setHapticsEnabled,
+      resetSyncCode
     }}>
       {children}
     </SyncContext.Provider>

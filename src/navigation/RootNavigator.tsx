@@ -1,17 +1,49 @@
 import React from 'react';
+import { TouchableOpacity } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { WorldClockScreen } from '../screens/WorldClockScreen';
 import { RemindersScreen } from '../screens/RemindersScreen';
 import { AlarmsScreen } from '../screens/AlarmsScreen';
 import { StopwatchScreen } from '../screens/StopwatchScreen';
 import { TimersScreen } from '../screens/TimersScreen';
 import { StatsScreen } from '../screens/StatsScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
+
+const AccountStack = () => {
+  const { colors } = useTheme();
+  return (
+    <Stack.Navigator screenOptions={{ 
+      headerStyle: { backgroundColor: colors.mantle },
+      headerTintColor: colors.text,
+      animation: 'slide_from_right'
+    }}>
+      <Stack.Screen 
+        name="Stats" 
+        component={StatsScreen} 
+        options={({ navigation }) => ({ 
+          title: 'Your Progress',
+          headerRight: () => (
+            <TouchableOpacity 
+              onPress={() => navigation.navigate('Settings')}
+              style={{ marginRight: 16 }}
+            >
+              <Ionicons name="settings-outline" size={24} color={colors.text} />
+            </TouchableOpacity>
+          )
+        })} 
+      />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
+    </Stack.Navigator>
+  );
+};
 
 export const RootNavigator = () => {
   const { colors, isDark } = useTheme();
@@ -51,8 +83,8 @@ export const RootNavigator = () => {
               iconName = focused ? 'stopwatch' : 'stopwatch-outline';
             } else if (route.name === 'Timers') {
               iconName = focused ? 'timer' : 'timer-outline';
-            } else if (route.name === 'Stats') {
-              iconName = focused ? 'bar-chart' : 'bar-chart-outline';
+            } else if (route.name === 'Account') {
+              iconName = focused ? 'person' : 'person-outline';
             }
 
             return <Ionicons name={iconName} size={size} color={color} />;
@@ -68,10 +100,11 @@ export const RootNavigator = () => {
           }}
         />
         <Tab.Screen
-          name="Stats"
-          component={StatsScreen}
+          name="Account"
+          component={AccountStack}
           options={{
-            tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart" size={size} color={color} />
+            headerShown: false,
+            tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />
           }}
         />
         <Tab.Screen name="Alarms" component={AlarmsScreen} />

@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api";
 
-const generateShortCode = () => {
+export const generateShortCode = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No O, 0, 1, I for readability
   let code = '';
   for (let i = 0; i < 8; i++) {
