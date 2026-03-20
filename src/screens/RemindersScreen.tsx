@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import { logStat } from '../utils/stats';
+import { updateRoutinesWidget } from '../utils/WidgetService';
 import { useSync } from '../context/SyncContext';
 
 export type Profile = {
@@ -142,6 +143,20 @@ export const RemindersScreen = () => {
   // ── Derived state ─────────────────────────────────────────────────────
   const profiles = localProfiles;
   const reminders = localReminders;
+
+  // Update Widget when reminders change
+  useEffect(() => {
+    const sorted = [...reminders].sort((a, b) => (a.timeHour * 60 + a.timeMinute) - (b.timeHour * 60 + b.timeMinute));
+    const next = sorted.find(r => !r.completedToday);
+    
+    if (next) {
+      const timeStr = `${next.timeHour.toString().padStart(2, '0')}:${next.timeMinute.toString().padStart(2, '0')}`;
+      const remaining = reminders.filter(r => !r.completedToday).length;
+      updateRoutinesWidget(next.title, timeStr, remaining);
+    } else {
+      updateRoutinesWidget("All Done!", "Relax", 0);
+    }
+  }, [reminders]);
 
   // ── Save helpers (write to both stores) ───────────────────────────────
   const saveProfilesLocal = async (next: Profile[]) => {

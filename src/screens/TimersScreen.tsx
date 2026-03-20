@@ -8,6 +8,7 @@ import { ThemeText } from '../components/ThemeText';
 import { ThemeColorPicker } from '../components/ThemeColorPicker';
 import { Ionicons } from '@expo/vector-icons';
 import { logStat } from '../utils/stats';
+import { startPomodoroActivity, endPomodoroActivity, updatePomodoroActivity } from '../utils/WidgetService';
 
 type Timer = {
   id: string;
@@ -95,10 +96,16 @@ export const TimersScreen = () => {
             }
             
             Alert.alert(isWork ? 'Focus Session Complete!' : 'Break Complete!', 'Starting the next phase.');
+            
+            const nextState = isWork ? 'break' : 'work';
+            const nextMs = isWork ? breakMs : workMs;
+            const nextEndTime = new Date(Date.now() + nextMs);
+            updatePomodoroActivity(false, nextState === 'work' ? 'Work' : 'Break', nextEndTime);
+
             return {
               ...tm,
-              pomodoroState: isWork ? 'break' : 'work',
-              timeRemainingMs: isWork ? breakMs : workMs,
+              pomodoroState: nextState,
+              timeRemainingMs: nextMs,
               lastTickTime: now,
               name: isWork ? 'Break Time' : 'Deep Focus',
               colorKey: isWork ? 'green' : 'red',
@@ -166,9 +173,16 @@ export const TimersScreen = () => {
     };
     setPomoConfigVisible(false);
     setTimers(prev => [newTm, ...prev]);
+    
+    // Start Live Activity
+    startPomodoroActivity(new Date(Date.now() + workMs), 'Work');
   };
 
   const deleteTimer = (id: string) => {
+    const tm = timers.find(t => t.id === id);
+    if (tm?.isPomodoro) {
+      endPomodoroActivity();
+    }
     setTimers(prev => prev.filter(tm => tm.id !== id));
   };
 
@@ -179,6 +193,16 @@ export const TimersScreen = () => {
         // Restart
         return { ...tm, isFinished: false, isRunning: true, timeRemainingMs: tm.originalDurationMs, lastTickTime: Date.now() };
       }
+      if (tm.isPomodoro) {
+        if (!tm.isRunning) {
+           // Resume
+           updatePomodoroActivity(false, tm.pomodoroState === 'work' ? 'Work' : 'Break', new Date(Date.now() + tm.timeRemainingMs));
+        } else {
+           // Pause
+           updatePomodoroActivity(true, tm.pomodoroState === 'work' ? 'Work' : 'Break', new Date(Date.now() + tm.timeRemainingMs));
+        }
+      }
+
       return { 
         ...tm, 
         isRunning: !tm.isRunning, 

@@ -16,7 +16,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.chronopop.app",
       "infoPlist": {
-        "UIBackgroundModes": ["audio", "fetch", "remote-notification"],
+        "UIBackgroundModes": [
+          "audio",
+          "fetch",
+          "remote-notification"
+        ],
         "NSMicrophoneUsageDescription": "Chronopop uses audio for focus session sounds.",
         "NSSpeechRecognitionUsageDescription": "Used for accessibility features."
       }
@@ -48,10 +52,22 @@
         {
           "icon": "./assets/icon.png",
           "color": "#cba6f7",
-          "sounds": ["./assets/sounds/alarm.mp3"],
+          "sounds": [
+            "./assets/sounds/alarm.mp3"
+          ],
           "iosDisplayInForeground": true,
           "androidMode": "default",
           "androidCollapsedTitle": "Chronopop Alarm"
+        }
+      ],
+      [
+        "expo-widgets",
+        {
+          "widgetsFolder": "widgets",
+          "ios": {
+            "liveActivities": true,
+            "frequentUpdates": true
+          }
         }
       ]
     ]
