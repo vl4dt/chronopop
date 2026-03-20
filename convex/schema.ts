@@ -56,6 +56,13 @@ export default defineSchema({
     timeMs: v.number(),
     timestamp: v.number(),
   }).index("by_stopwatch", ["stopwatchId"]),
+  worldClocks: defineTable({
+    deviceId: v.string(),
+    name: v.string(),
+    timezone: v.string(),
+    colorKey: v.string(),
+    order: v.number(),
+  }).index("by_device", ["deviceId"]),
   backups: defineTable({
     deviceId: v.string(),
     profilesJson: v.string(),

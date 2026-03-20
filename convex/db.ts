@@ -394,3 +394,46 @@ export const getStopwatchLaps = query({
       .collect();
   },
 });
+
+// --- World Clocks ---
+export const getWorldClocks = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.query("worldClocks")
+      .withIndex("by_device", (q: any) => q.eq("deviceId", args.deviceId))
+      .collect();
+  },
+});
+
+export const createWorldClock = mutation({
+  args: { deviceId: v.string(), name: v.string(), timezone: v.string(), colorKey: v.string(), order: v.number() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("worldClocks", args);
+  },
+});
+
+export const updateWorldClock = mutation({
+  args: { id: v.id("worldClocks"), name: v.optional(v.string()), colorKey: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const { id, ...patch } = args;
+    return await ctx.db.patch(id, patch);
+  },
+});
+
+export const deleteWorldClock = mutation({
+  args: { id: v.id("worldClocks") },
+  handler: async (ctx, args) => {
+    return await ctx.db.delete(args.id);
+  },
+});
+
+export const reorderWorldClocks = mutation({
+  args: { 
+    shifts: v.array(v.object({ id: v.id("worldClocks"), order: v.number() })) 
+  },
+  handler: async (ctx, args) => {
+    for (const shift of args.shifts) {
+      await ctx.db.patch(shift.id, { order: shift.order });
+    }
+  },
+});
