@@ -1,42 +1,38 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getDeviceSyncCode } from '../utils/sync';
-
 import { api } from '../../convex/_generated/api';
 import { useQuery } from 'convex/react';
 
 interface SyncContextType {
   syncCode: string;
-  isPremiumSync: boolean;
+  isPro: boolean;
   clockOffset: number;
   setSyncCode: (code: string) => Promise<void>;
-  enablePremiumSync: () => Promise<void>;
-  disablePremiumSync: () => void;
+  upgradeToPro: () => Promise<void>;
+  downgradeFromPro: () => void;
 }
 
 const SyncContext = createContext<SyncContextType>({
   syncCode: '',
-  isPremiumSync: false,
+  isPro: false,
   clockOffset: 0,
   setSyncCode: async () => {},
-  enablePremiumSync: async () => {},
-  disablePremiumSync: () => {},
+  upgradeToPro: async () => {},
+  downgradeFromPro: () => {},
 });
 
 export const useSync = () => useContext(SyncContext);
 
 export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const [syncCode, setSyncCodeState] = useState('');
-  const [isPremiumSync, setIsPremiumSync] = useState(false);
+  const [isPro, setIsPro] = useState(false);
   const [clockOffset, setClockOffset] = useState(0);
 
   const serverTime = useQuery(api.db.getServerTime);
 
   useEffect(() => {
     if (serverTime) {
-      // Calculate offset: serverTime - localTime
-      // We assume the network latency is negligible for now, or half the RTT
-      // Since this is a simple query, it's a good approximation
       setClockOffset(serverTime - Date.now());
     }
   }, [serverTime]);
@@ -45,9 +41,8 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     const init = async () => {
       const code = await getDeviceSyncCode();
       setSyncCodeState(code);
-      // Check if premium sync was previously enabled
-      const enabled = await AsyncStorage.getItem('@premium_sync_enabled');
-      if (enabled === 'true') setIsPremiumSync(true);
+      const proStatus = await AsyncStorage.getItem('@pro_status');
+      if (proStatus === 'true') setIsPro(true);
     };
     init();
   }, []);
@@ -58,18 +53,18 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     setSyncCodeState(normalized);
   }, []);
 
-  const enablePremiumSync = useCallback(async () => {
-    await AsyncStorage.setItem('@premium_sync_enabled', 'true');
-    setIsPremiumSync(true);
+  const upgradeToPro = useCallback(async () => {
+    await AsyncStorage.setItem('@pro_status', 'true');
+    setIsPro(true);
   }, []);
 
-  const disablePremiumSync = useCallback(() => {
-    AsyncStorage.setItem('@premium_sync_enabled', 'false');
-    setIsPremiumSync(false);
+  const downgradeFromPro = useCallback(() => {
+    AsyncStorage.setItem('@pro_status', 'false');
+    setIsPro(false);
   }, []);
 
   return (
-    <SyncContext.Provider value={{ syncCode, isPremiumSync, clockOffset, setSyncCode, enablePremiumSync, disablePremiumSync }}>
+    <SyncContext.Provider value={{ syncCode, isPro, clockOffset, setSyncCode, upgradeToPro, downgradeFromPro }}>
       {children}
     </SyncContext.Provider>
   );

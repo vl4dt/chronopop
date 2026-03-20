@@ -35,11 +35,11 @@ export default function App() {
   return (
     <ConvexProvider client={convex}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <ThemeProvider>
-          <SyncProvider>
+        <SyncProvider>
+          <ThemeProvider>
             <AppContent />
-          </SyncProvider>
-        </ThemeProvider>
+          </ThemeProvider>
+        </SyncProvider>
       </GestureHandlerRootView>
     </ConvexProvider>
   );

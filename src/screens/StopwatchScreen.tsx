@@ -10,6 +10,8 @@ import { api } from '../../convex/_generated/api';
 import { useSync } from '../context/SyncContext';
 import { useSyncedClock } from '../hooks/useSyncedClock';
 import { Doc, Id } from '../../convex/_generated/dataModel';
+import { ProUpgradeModal } from '../components/ProUpgradeModal';
+import { AdBanner } from '../components/AdBanner';
 
 const COLOR_OPTIONS: (keyof ThemeColors)[] = ['blue', 'lavender', 'sapphire', 'sky', 'teal', 'green', 'yellow', 'peach', 'maroon', 'red', 'mauve', 'pink', 'flamingo', 'rosewater'];
 
@@ -94,9 +96,10 @@ const StopwatchCard = ({
   );
 };
 
+
 export const StopwatchScreen = () => {
   const { colors } = useTheme();
-  const { syncCode } = useSync();
+  const { syncCode, isPro } = useSync();
   
   const stopwatches = useQuery(api.db.getStopwatches, { deviceId: syncCode }) || [];
   const createStopwatchMutable = useMutation(api.db.createStopwatch);
@@ -104,14 +107,17 @@ export const StopwatchScreen = () => {
   const toggleStopwatchMutable = useMutation(api.db.toggleStopwatch);
   const resetStopwatchMutable = useMutation(api.db.resetStopwatch);
   const addStopwatchLapMutable = useMutation(api.db.addStopwatchLap);
-  // We'll use a generic update mutation if available or just update color/name
-  // @ts-ignore - we'll handle this in the card
   const updateStopwatchMutable = useMutation(api.db.updateStopwatch);
 
   const [pickerVisible, setPickerVisible] = useState(false);
   const [selectedId, setSelectedId] = useState<Id<"stopwatches"> | null>(null);
+  const [proModalVisible, setProModalVisible] = useState(false);
 
   const addStopwatch = () => {
+    if (!isPro && stopwatches.length >= 1) {
+      setProModalVisible(true);
+      return;
+    }
     const randomColor = COLOR_OPTIONS[Math.floor(Math.random() * COLOR_OPTIONS.length)];
     createStopwatchMutable({
       deviceId: syncCode,
@@ -124,6 +130,7 @@ export const StopwatchScreen = () => {
     <View style={[styles.container, { backgroundColor: colors.base }]}>
       <FlatList
         data={stopwatches}
+        ListHeaderComponent={<AdBanner onPress={() => setProModalVisible(true)} />}
         keyExtractor={item => item._id}
         renderItem={({ item }) => (
           <StopwatchCard 
@@ -162,14 +169,19 @@ export const StopwatchScreen = () => {
           }}
         />
       )}
+
+      <ProUpgradeModal 
+        visible={proModalVisible} 
+        onClose={() => setProModalVisible(false)} 
+      />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  listContent: { padding: 16, paddingBottom: 100, flexGrow: 1 },
-  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  listContent: { padding: 16, paddingBottom: 100 },
+  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 100 },
   card: {
     padding: 24,
     marginBottom: 16,

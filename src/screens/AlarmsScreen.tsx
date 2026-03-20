@@ -8,11 +8,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { useSync } from '../context/SyncContext';
+import { ProUpgradeModal } from '../components/ProUpgradeModal';
+import { AdBanner } from '../components/AdBanner';
 import { Doc, Id } from '../../convex/_generated/dataModel';
 
 export const AlarmsScreen = () => {
   const { colors } = useTheme();
-  const { syncCode } = useSync();
+  const { syncCode, isPro } = useSync();
   
   const alarms = useQuery(api.db.getAlarms, { deviceId: syncCode }) || [];
   const createAlarmMutable = useMutation(api.db.createAlarm);
@@ -26,6 +28,8 @@ export const AlarmsScreen = () => {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [editingAlarmId, setEditingAlarmId] = useState<Id<"alarms"> | null>(null);
 
+  const [proModalVisible, setProModalVisible] = useState(false);
+  
   // For Missions
   const [missionVisible, setMissionVisible] = useState(false);
   const [currentMission, setCurrentMission] = useState({ q: '10 + 10', a: 20 });
@@ -52,7 +56,11 @@ export const AlarmsScreen = () => {
     }
   };
 
-  const addAlarm = () => {
+  const handleAddAlarm = () => {
+    if (!isPro && alarms.length >= 3) {
+      setProModalVisible(true);
+      return;
+    }
     const now = new Date();
     now.setHours(7, 0, 0, 0);
     createAlarmMutable({
@@ -135,6 +143,7 @@ export const AlarmsScreen = () => {
     <View style={[styles.container, { backgroundColor: colors.base }]}>
       <FlatList
         data={alarms}
+        ListHeaderComponent={<AdBanner onPress={() => setProModalVisible(true)} />}
         keyExtractor={item => item._id}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
@@ -142,7 +151,7 @@ export const AlarmsScreen = () => {
 
       <TouchableOpacity 
         style={[styles.fab, { backgroundColor: colors.mauve, shadowColor: colors.crust }]} 
-        onPress={addAlarm}
+        onPress={handleAddAlarm}
       >
         <Ionicons name="add" size={32} color={colors.base} />
       </TouchableOpacity>
@@ -231,6 +240,11 @@ export const AlarmsScreen = () => {
           </View>
         </Modal>
       )}
+
+      <ProUpgradeModal 
+        visible={proModalVisible} 
+        onClose={() => setProModalVisible(false)} 
+      />
     </View>
   );
 };

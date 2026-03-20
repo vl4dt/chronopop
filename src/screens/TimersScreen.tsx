@@ -14,6 +14,8 @@ import { api } from '../../convex/_generated/api';
 import { useSync } from '../context/SyncContext';
 import { useSyncedClock } from '../hooks/useSyncedClock';
 import { Doc, Id } from '../../convex/_generated/dataModel';
+import { ProUpgradeModal } from '../components/ProUpgradeModal';
+import { AdBanner } from '../components/AdBanner';
 
 const COLOR_OPTIONS: (keyof ThemeColors)[] = ['blue', 'sapphire', 'teal', 'green', 'yellow', 'peach', 'red', 'mauve', 'pink'];
 
@@ -127,7 +129,7 @@ const TimerCard = ({
 
 export const TimersScreen = () => {
   const { colors } = useTheme();
-  const { syncCode } = useSync();
+  const { syncCode, isPro } = useSync();
   const route = useRoute<any>();
   
   const timers = useQuery(api.db.getTimers, { deviceId: syncCode }) || [];
@@ -145,8 +147,15 @@ export const TimersScreen = () => {
   const [pomoWorkMin, setPomoWorkMin] = useState('25');
   const [pomoBreakMin, setPomoBreakMin] = useState('5');
 
+  const [proModalVisible, setProModalVisible] = useState(false);
+
   useEffect(() => {
     if (route.params?.createTimer) {
+      if (!isPro && timers.length >= 3) {
+        setProModalVisible(true);
+        route.params.createTimer = undefined;
+        return;
+      }
       const { title, colorKey, durationMs } = route.params.createTimer;
       createTimerMutable({
         deviceId: syncCode,
@@ -156,7 +165,7 @@ export const TimersScreen = () => {
       });
       route.params.createTimer = undefined;
     }
-  }, [route.params?.createTimer, syncCode]);
+  }, [route.params?.createTimer, syncCode, isPro, timers.length]);
 
   useEffect(() => {
     // Check for finished timers to play haptics
@@ -191,6 +200,10 @@ export const TimersScreen = () => {
   }, [timers]);
 
   const addTimer = () => {
+    if (!isPro && timers.length >= 3) {
+      setProModalVisible(true);
+      return;
+    }
     const randomColor = COLOR_OPTIONS[Math.floor(Math.random() * COLOR_OPTIONS.length)];
     createTimerMutable({
       deviceId: syncCode,
@@ -201,6 +214,10 @@ export const TimersScreen = () => {
   };
 
   const addPomodoroTimer = () => {
+    if (!isPro && timers.length >= 3) {
+      setProModalVisible(true);
+      return;
+    }
     const workMs = parseInt(pomoWorkMin || '25') * 60 * 1000;
     const breakMs = parseInt(pomoBreakMin || '5') * 60 * 1000;
     
@@ -253,6 +270,7 @@ export const TimersScreen = () => {
     <View style={[styles.container, { backgroundColor: colors.base }]}>
       <FlatList
         data={timers}
+        ListHeaderComponent={<AdBanner onPress={() => setProModalVisible(true)} />}
         keyExtractor={item => item._id}
         renderItem={({ item }) => (
           <TimerCard 
@@ -345,6 +363,11 @@ export const TimersScreen = () => {
           }}
         />
       )}
+
+      <ProUpgradeModal 
+        visible={proModalVisible} 
+        onClose={() => setProModalVisible(false)} 
+      />
     </View>
   );
 };
