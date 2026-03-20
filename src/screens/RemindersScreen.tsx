@@ -415,7 +415,7 @@ export const RemindersScreen = () => {
                   <TextInput style={[styles.textInput, { backgroundColor: colors.surface0, color: colors.text }]} keyboardType="numeric" value={newMinute} onChangeText={setNewMinute} />
                 </View>
               </View>
-              <ThemeText variant="caption" colorKey="subtext0" style={{ marginBottom: 8 }}>OPTIONAL THERAPY TIMER (MINUTES)</ThemeText>
+              <ThemeText variant="caption" colorKey="subtext0" style={{ marginBottom: 8 }}>OPTIONAL ROUTINE DURATION (MINUTES)</ThemeText>
               <TextInput style={[styles.textInput, { backgroundColor: colors.surface0, color: colors.text, marginBottom: 24 }]} keyboardType="numeric" placeholder="Leave blank if none" placeholderTextColor={colors.subtext0} value={newDuration} onChangeText={setNewDuration} />
               <View style={{ flexDirection: 'row', width: '100%' }}>
                 <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.surface1, flex: 1, marginRight: 8 }]} onPress={() => setAddVisible(false)}>

@@ -100,12 +100,12 @@ export const StatsScreen = () => {
 
         <View style={[styles.statCard, { backgroundColor: colors.surface0, shadowColor: colors.crust }]}>
           <View style={[styles.iconBox, { backgroundColor: 'rgba(166, 227, 161, 0.2)' }]}>
-            <Ionicons name="medical" size={32} color={colors.green} />
+            <Ionicons name="checkbox-outline" size={32} color={colors.green} />
           </View>
           <View style={styles.statInfo}>
-            <ThemeText variant="body" colorKey="subtext0">Therapies / Routines</ThemeText>
+            <ThemeText variant="body" colorKey="subtext0">Routines</ThemeText>
             <ThemeText variant="h1" colorKey="green">
-              {stats.treatments} completed
+              {stats.treatments} routines completed
             </ThemeText>
           </View>
         </View>

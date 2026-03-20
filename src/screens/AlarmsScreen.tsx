@@ -5,6 +5,7 @@ import { ThemeColors } from '../theme/colors';
 import { ThemeText } from '../components/ThemeText';
 import { ThemeColorPicker } from '../components/ThemeColorPicker';
 import { Ionicons } from '@expo/vector-icons';
+import { scheduleAlarmNotification, cancelAlarmNotification, registerNotifId } from '../utils/NotificationService';
 
 type Alarm = {
   id: string;
@@ -34,13 +35,6 @@ export const AlarmsScreen = () => {
   const [currentMission, setCurrentMission] = useState({ q: '10 + 10', a: 20 });
   const [missionInput, setMissionInput] = useState('');
 
-  const playSound = async (loop: boolean = false) => {
-    // Legacy support: We trigger an Alert instead of Audio since ExponentAV requires Custom Dev Client
-    if (!loop) {
-      Alert.alert('Alarm ringing!', 'Time to check your alarms.');
-    }
-  };
-
   const generateMission = () => {
     const n1 = Math.floor(Math.random() * 50) + 12;
     const n2 = Math.floor(Math.random() * 50) + 12;
@@ -55,34 +49,27 @@ export const AlarmsScreen = () => {
     }
   };
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = new Date();
-      setAlarms(prev => {
-        let changed = false;
-        const next = prev.map(a => {
-          if (!a.enabled) return a;
-          if (a.time.getHours() === now.getHours() && a.time.getMinutes() === now.getMinutes() && now.getSeconds() === 0) {
-            if (a.missionEnabled) {
-               generateMission();
-               setMissionVisible(true);
-               playSound(true);
-            } else {
-               playSound(false);
-            }
-            changed = true;
-            return { ...a, enabled: false };
-          }
-          return a;
-        });
-        return changed ? next : prev;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+  // ── Schedule / cancel native notifications when alarms change ────────────
+  const scheduleAlarm = async (alarm: Alarm) => {
+    const fireDate = new Date(alarm.time);
+    const notifId = await scheduleAlarmNotification({
+      id: alarm.id,
+      title: '⏰ Chronopop Alarm',
+      body: `It\'s ${fireDate.getHours().toString().padStart(2,'0')}:${fireDate.getMinutes().toString().padStart(2,'0')} — your alarm is going off!`,
+      fireDate,
+      repeatsDaily: true,
+    });
+    if (notifId) registerNotifId(alarm.id, notifId);
+  };
 
-  const toggleAlarm = (id: string) => {
-    setAlarms(prev => prev.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a));
+  const toggleAlarm = async (id: string) => {
+    setAlarms(prev => {
+      const next = prev.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a);
+      const alarm = next.find(a => a.id === id)!;
+      if (alarm.enabled) scheduleAlarm(alarm);
+      else cancelAlarmNotification(id);
+      return next;
+    });
   };
 
   const addAlarm = () => {
@@ -94,9 +81,11 @@ export const AlarmsScreen = () => {
       missionEnabled: false,
     };
     setAlarms(prev => [...prev, newAlarm]);
+    scheduleAlarm(newAlarm);
   };
 
   const deleteAlarm = (id: string) => {
+    cancelAlarmNotification(id);
     setAlarms(prev => prev.filter(a => a.id !== id));
   };
 
