@@ -9,6 +9,7 @@ import { RemindersScreen } from '../screens/RemindersScreen';
 import { AlarmsScreen } from '../screens/AlarmsScreen';
 import { StopwatchScreen } from '../screens/StopwatchScreen';
 import { TimersScreen } from '../screens/TimersScreen';
+import { StatsScreen } from '../screens/StatsScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -43,13 +44,15 @@ export const RootNavigator = () => {
             if (route.name === 'World Clock') {
               iconName = focused ? 'globe' : 'globe-outline';
             } else if (route.name === 'Routines') {
-              iconName = focused ? 'medical' : 'medical-outline';
+              iconName = focused ? 'medical' : 'medical-outline'; // This will be overridden by specific options
             } else if (route.name === 'Alarms') {
               iconName = focused ? 'alarm' : 'alarm-outline';
             } else if (route.name === 'Stopwatch') {
               iconName = focused ? 'stopwatch' : 'stopwatch-outline';
             } else if (route.name === 'Timers') {
               iconName = focused ? 'timer' : 'timer-outline';
+            } else if (route.name === 'Stats') {
+              iconName = focused ? 'bar-chart' : 'bar-chart-outline';
             }
 
             return <Ionicons name={iconName} size={size} color={color} />;
@@ -57,7 +60,20 @@ export const RootNavigator = () => {
         })}
       >
         <Tab.Screen name="World Clock" component={WorldClockScreen} />
-        <Tab.Screen name="Routines" component={RemindersScreen} />
+        <Tab.Screen
+          name="Routines"
+          component={RemindersScreen}
+          options={{
+            tabBarIcon: ({ color, size }) => <Ionicons name="list" size={size} color={color} />
+          }}
+        />
+        <Tab.Screen
+          name="Stats"
+          component={StatsScreen}
+          options={{
+            tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart" size={size} color={color} />
+          }}
+        />
         <Tab.Screen name="Alarms" component={AlarmsScreen} />
         <Tab.Screen name="Stopwatch" component={StopwatchScreen} />
         <Tab.Screen name="Timers" component={TimersScreen} />

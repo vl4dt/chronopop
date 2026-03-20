@@ -104,3 +104,65 @@ export const seedInitialData = mutation({
     await ctx.db.insert("reminders", { deviceId: args.deviceId, profileId: p2Id, title: 'Nebulizer Therapy', timeHour: 18, timeMinute: 30, durationMinutes: 10, completedToday: false });
   }
 });
+
+export const deleteReminder = mutation({
+  args: { id: v.id("reminders") },
+  handler: async (ctx, args) => {
+    return await ctx.db.delete(args.id);
+  },
+});
+
+export const updateProfile = mutation({
+  args: { id: v.id("profiles"), name: v.string(), type: v.string(), colorKey: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.patch(args.id, { name: args.name, type: args.type, colorKey: args.colorKey });
+  },
+});
+
+export const updateReminder = mutation({
+  args: {
+    id: v.id("reminders"),
+    title: v.optional(v.string()),
+    timeHour: v.optional(v.number()),
+    timeMinute: v.optional(v.number()),
+    durationMinutes: v.optional(v.number()),
+    completedToday: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const { id, ...patch } = args;
+    return await ctx.db.patch(id, patch);
+  },
+});
+
+// --- Premium Device Sync (Backup/Restore) ---
+export const syncPushOverwrite = mutation({
+  args: { 
+    deviceId: v.string(), 
+    profilesJson: v.string(), 
+    remindersJson: v.string() 
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.query("backups").withIndex("by_device", (q: any) => q.eq("deviceId", args.deviceId)).first();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        profilesJson: args.profilesJson,
+        remindersJson: args.remindersJson,
+        timestamp: Date.now()
+      });
+    } else {
+      await ctx.db.insert("backups", {
+        deviceId: args.deviceId,
+        profilesJson: args.profilesJson,
+        remindersJson: args.remindersJson,
+        timestamp: Date.now()
+      });
+    }
+  }
+});
+
+export const syncPull = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.query("backups").withIndex("by_device", (q: any) => q.eq("deviceId", args.deviceId)).first();
+  }
+});

@@ -29,4 +29,10 @@ export default defineSchema({
     totalFocusMinutes: v.number(),
     treatmentsCompleted: v.number(),
   }).index("by_device", ["deviceId"]),
+  backups: defineTable({
+    deviceId: v.string(),
+    profilesJson: v.string(),
+    remindersJson: v.string(),
+    timestamp: v.number(),
+  }).index("by_device", ["deviceId"]),
 });

@@ -1,14 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, ScrollView, Modal, TextInput, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, StyleSheet, FlatList, TouchableOpacity, ScrollView, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 import { useTheme } from '../theme/ThemeContext';
 import { ThemeColors } from '../theme/colors';
 import { ThemeText } from '../components/ThemeText';
 import { Ionicons } from '@expo/vector-icons';
-import { ThemeColorPicker } from '../components/ThemeColorPicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
+import { logStat } from '../utils/stats';
+import { useSync } from '../context/SyncContext';
 
 export type Profile = {
   id: string;
@@ -38,14 +41,37 @@ const defaultReminders: TreatmentReminder[] = [
   { id: 'r3', profileId: 'p2', title: 'Nebulizer Therapy', timeHour: 18, timeMinute: 30, durationMinutes: 10, completedToday: false },
 ];
 
+// -----------------------------------------------------------------------
+// Helper: map Convex record (with _id) to local shape
+// -----------------------------------------------------------------------
+const mapProfile = (p: any): Profile => ({
+  id: p._id as string,
+  name: p.name,
+  type: p.type as 'Person' | 'Pet',
+  colorKey: p.colorKey as keyof ThemeColors,
+});
+
+const mapReminder = (r: any): TreatmentReminder => ({
+  id: r._id as string,
+  profileId: r.profileId as string,
+  title: r.title,
+  timeHour: r.timeHour,
+  timeMinute: r.timeMinute,
+  durationMinutes: r.durationMinutes,
+  completedToday: r.completedToday,
+});
+
 export const RemindersScreen = () => {
   const { colors } = useTheme();
+  const { syncCode, isPremiumSync } = useSync();
   const navigation = useNavigation<BottomTabNavigationProp<any>>();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [reminders, setReminders] = useState<TreatmentReminder[]>([]);
+
+  // ── Local (offline) state ──────────────────────────────────────────────
+  const [localProfiles, setLocalProfiles] = useState<Profile[]>([]);
+  const [localReminders, setLocalReminders] = useState<TreatmentReminder[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
 
-  // Add Routine State
+  // ── Add Routine modal state ────────────────────────────────────────────
   const [addVisible, setAddVisible] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newProfileId, setNewProfileId] = useState<string | null>(null);
@@ -53,58 +79,128 @@ export const RemindersScreen = () => {
   const [newMinute, setNewMinute] = useState('00');
   const [newDuration, setNewDuration] = useState('');
 
-  // Profile Management State
+  // ── Profile management modal state ────────────────────────────────────
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [profileName, setProfileName] = useState('');
   const [profileType, setProfileType] = useState<'Person' | 'Pet'>('Person');
   const [profileColor, setProfileColor] = useState<keyof ThemeColors>('blue');
 
-  // Offline-First Local Storage Load
+  // ── Convex real-time hooks (only active when syncCode is non-empty) ────
+  const convexProfiles = useQuery(
+    api.db.getProfiles,
+    syncCode && isPremiumSync ? { deviceId: syncCode } : 'skip'
+  );
+  const convexReminders = useQuery(
+    api.db.getReminders,
+    syncCode && isPremiumSync ? { deviceId: syncCode } : 'skip'
+  );
+
+  // Convex mutations
+  const convexCreateProfile = useMutation(api.db.createProfile);
+  const convexRemoveProfile = useMutation(api.db.removeProfile);
+  const convexSaveReminder = useMutation(api.db.saveReminder);
+  const convexMarkComplete = useMutation(api.db.markReminderComplete);
+  const convexDeleteReminder = useMutation(api.db.deleteReminder);
+  const convexUpdateProfile = useMutation(api.db.updateProfile);
+  const convexUpdateReminder = useMutation(api.db.updateReminder);
+
+  // ── Seed local storage on first launch ────────────────────────────────
   useEffect(() => {
-    const loadLocalData = async () => {
-      try {
-        const p = await AsyncStorage.getItem('@profiles');
-        const r = await AsyncStorage.getItem('@reminders');
-        
-        if (p) setProfiles(JSON.parse(p));
-        else {
-          setProfiles(defaultProfiles);
-          await AsyncStorage.setItem('@profiles', JSON.stringify(defaultProfiles));
-        }
-        
-        if (r) setReminders(JSON.parse(r));
-        else {
-          setReminders(defaultReminders);
-          await AsyncStorage.setItem('@reminders', JSON.stringify(defaultReminders));
-        }
-      } catch (e) {
-        console.error("Local Storage Error", e);
+    const init = async () => {
+      const p = await AsyncStorage.getItem('@profiles');
+      const r = await AsyncStorage.getItem('@reminders');
+      if (p) setLocalProfiles(JSON.parse(p));
+      else {
+        setLocalProfiles(defaultProfiles);
+        await AsyncStorage.setItem('@profiles', JSON.stringify(defaultProfiles));
+      }
+      if (r) setLocalReminders(JSON.parse(r));
+      else {
+        setLocalReminders(defaultReminders);
+        await AsyncStorage.setItem('@reminders', JSON.stringify(defaultReminders));
       }
     };
-    loadLocalData();
+    init();
   }, []);
 
-  const saveProfiles = async (newProfiles: Profile[]) => {
-    setProfiles(newProfiles);
-    await AsyncStorage.setItem('@profiles', JSON.stringify(newProfiles));
+  // ── Sync Convex real-time data to local state + AsyncStorage ──────────
+  useEffect(() => {
+    if (!isPremiumSync || !convexProfiles) return;
+    const mapped = convexProfiles.map(mapProfile);
+    setLocalProfiles(mapped);
+    AsyncStorage.setItem('@profiles', JSON.stringify(mapped));
+  }, [convexProfiles, isPremiumSync]);
+
+  useEffect(() => {
+    if (!isPremiumSync || !convexReminders) return;
+    const mapped = convexReminders.map(mapReminder);
+    setLocalReminders(mapped);
+    AsyncStorage.setItem('@reminders', JSON.stringify(mapped));
+  }, [convexReminders, isPremiumSync]);
+
+  // ── Derived state ─────────────────────────────────────────────────────
+  const profiles = localProfiles;
+  const reminders = localReminders;
+
+  // ── Save helpers (write to both stores) ───────────────────────────────
+  const saveProfilesLocal = async (next: Profile[]) => {
+    setLocalProfiles(next);
+    await AsyncStorage.setItem('@profiles', JSON.stringify(next));
   };
 
-  const saveReminders = async (newReminders: TreatmentReminder[]) => {
-    setReminders(newReminders);
-    await AsyncStorage.setItem('@reminders', JSON.stringify(newReminders));
+  const saveRemindersLocal = async (next: TreatmentReminder[]) => {
+    setLocalReminders(next);
+    await AsyncStorage.setItem('@reminders', JSON.stringify(next));
   };
 
-  const toggleCompletion = (id: string) => {
-    const updated = reminders.map(r => r.id === id ? { ...r, completedToday: !r.completedToday } : r);
-    saveReminders(updated);
+  // ── Toggle completion ─────────────────────────────────────────────────
+  const toggleCompletion = async (id: string) => {
+    const reminder = reminders.find(r => r.id === id);
+    if (!reminder) return;
+    const nowDone = !reminder.completedToday;
+    logStat('treatment', nowDone ? 1 : -1);
+
+    if (isPremiumSync && syncCode) {
+      // IDs from Convex are the actual `_id`s; pass directly
+      try {
+        await convexMarkComplete({ id: id as any, completed: nowDone, deviceId: syncCode });
+      } catch (e) {
+        console.warn('Convex mark complete failed, saving locally', e);
+        const next = reminders.map(r => r.id === id ? { ...r, completedToday: nowDone } : r);
+        await saveRemindersLocal(next);
+      }
+    } else {
+      const next = reminders.map(r => r.id === id ? { ...r, completedToday: nowDone } : r);
+      await saveRemindersLocal(next);
+    }
   };
 
-  const createRoutine = () => {
+  // ── Create routine ────────────────────────────────────────────────────
+  const createRoutine = async () => {
     if (!newProfileId || !newTitle.trim()) {
-      Alert.alert('Missing Fields', 'Please enter a routine title and select an assigned profile.');
+      Alert.alert('Missing Fields', 'Please enter a title and assign a profile.');
       return;
     }
+    setAddVisible(false);
+    setNewTitle('');
+    setNewDuration('');
+
+    if (isPremiumSync && syncCode) {
+      try {
+        await convexSaveReminder({
+          deviceId: syncCode,
+          profileId: newProfileId as any,
+          title: newTitle,
+          timeHour: parseInt(newHour) || 0,
+          timeMinute: parseInt(newMinute) || 0,
+          durationMinutes: newDuration ? parseInt(newDuration) : undefined,
+          completedToday: false,
+        });
+        return; // Convex subscription will update UI
+      } catch (e) { console.warn('Convex create routine failed, saving locally', e); }
+    }
+
     const newRoutine: TreatmentReminder = {
       id: Crypto.randomUUID(),
       profileId: newProfileId,
@@ -112,67 +208,77 @@ export const RemindersScreen = () => {
       timeHour: parseInt(newHour) || 0,
       timeMinute: parseInt(newMinute) || 0,
       durationMinutes: newDuration ? parseInt(newDuration) : undefined,
-      completedToday: false
+      completedToday: false,
     };
-    saveReminders([...reminders, newRoutine]);
-    setAddVisible(false);
-    setNewTitle('');
-    setNewDuration('');
+    await saveRemindersLocal([...reminders, newRoutine]);
   };
 
+  // ── Profile CRUD ──────────────────────────────────────────────────────
   const openAddProfile = () => {
-    setEditingProfile(null);
-    setProfileName('');
-    setProfileType('Person');
-    setProfileColor('blue');
+    setEditingProfile(null); setProfileName(''); setProfileType('Person'); setProfileColor('blue');
     setProfileModalVisible(true);
   };
-
   const openEditProfile = (p: Profile) => {
-    setEditingProfile(p);
-    setProfileName(p.name);
-    setProfileType(p.type);
-    setProfileColor(p.colorKey);
+    setEditingProfile(p); setProfileName(p.name); setProfileType(p.type); setProfileColor(p.colorKey);
     setProfileModalVisible(true);
   };
 
-  const saveProfile = () => {
-    if (!profileName.trim()) {
-      Alert.alert('Missing Info', 'Please provide a name for the profile.');
-      return;
+  const saveProfile = async () => {
+    if (!profileName.trim()) { Alert.alert('Missing Info', 'Please provide a name.'); return; }
+    setProfileModalVisible(false);
+
+    if (isPremiumSync && syncCode) {
+      try {
+        if (editingProfile) {
+          await convexUpdateProfile({ id: editingProfile.id as any, name: profileName, type: profileType, colorKey: profileColor });
+        } else {
+          await convexCreateProfile({ deviceId: syncCode, name: profileName, type: profileType, colorKey: profileColor });
+        }
+        return; // subscription updates UI
+      } catch (e) { console.warn('Convex profile save failed, saving locally', e); }
     }
+
     if (editingProfile) {
-      const updated = profiles.map(p => p.id === editingProfile.id ? { ...p, name: profileName, type: profileType, colorKey: profileColor } : p);
-      saveProfiles(updated);
+      await saveProfilesLocal(profiles.map(p => p.id === editingProfile.id ? { ...p, name: profileName, type: profileType, colorKey: profileColor } : p));
     } else {
       const newP: Profile = { id: Crypto.randomUUID(), name: profileName, type: profileType, colorKey: profileColor };
-      saveProfiles([...profiles, newP]);
+      await saveProfilesLocal([...profiles, newP]);
     }
-    setProfileModalVisible(false);
   };
 
   const deleteProfile = () => {
     if (!editingProfile) return;
-    Alert.alert('Delete Profile?', `Are you sure you want to delete ${editingProfile.name}? All associated routines will also be deleted.`, [
+    Alert.alert('Delete Profile?', `Delete "${editingProfile.name}" and all its routines?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => {
-        saveProfiles(profiles.filter(p => p.id !== editingProfile.id));
-        saveReminders(reminders.filter(r => r.profileId !== editingProfile.id));
-        if (selectedProfileId === editingProfile.id) setSelectedProfileId(null);
+      { text: 'Delete', style: 'destructive', onPress: async () => {
         setProfileModalVisible(false);
+        if (selectedProfileId === editingProfile.id) setSelectedProfileId(null);
+
+        if (isPremiumSync && syncCode) {
+          try {
+            // Delete all reminders for this profile first
+            const toDelete = reminders.filter(r => r.profileId === editingProfile.id);
+            await Promise.all(toDelete.map(r => convexDeleteReminder({ id: r.id as any })));
+            await convexRemoveProfile({ id: editingProfile.id as any });
+            return;
+          } catch (e) { console.warn('Convex delete failed, removing locally', e); }
+        }
+
+        await saveProfilesLocal(profiles.filter(p => p.id !== editingProfile.id));
+        await saveRemindersLocal(reminders.filter(r => r.profileId !== editingProfile.id));
       }}
-    ])
+    ]);
   };
 
   const getProfile = (id: string) => profiles.find(p => p.id === id);
 
+  // ── Render ────────────────────────────────────────────────────────────
   const renderReminder = ({ item }: { item: TreatmentReminder }) => {
     const profile = getProfile(item.profileId);
     if (!profile) return null;
-
     const timeStr = `${item.timeHour.toString().padStart(2, '0')}:${item.timeMinute.toString().padStart(2, '0')}`;
     const pColor = profile.colorKey as keyof ThemeColors;
-    
+
     return (
       <View style={[styles.card, { backgroundColor: colors.surface0, borderColor: item.completedToday ? colors[pColor] : 'transparent', borderWidth: item.completedToday ? 2 : 0 }]}>
         <View style={styles.cardHeader}>
@@ -184,29 +290,20 @@ export const RemindersScreen = () => {
           </View>
           <ThemeText variant="h1" colorKey={pColor}>{timeStr}</ThemeText>
         </View>
-
         <View style={styles.cardFooter}>
           <ThemeText variant="caption" colorKey="subtext0">For: {profile.name}</ThemeText>
           <View style={styles.actionsRow}>
             {item.durationMinutes && (
               <TouchableOpacity
                 style={[styles.therapyBtn, { backgroundColor: colors.surface1 }]}
-                onPress={() => {
-                  navigation.navigate('Timers', {
-                    createTimer: {
-                      title: item.title,
-                      colorKey: pColor,
-                      durationMs: item.durationMinutes! * 60 * 1000,
-                    }
-                  });
-                }}
+                onPress={() => navigation.navigate('Timers', { createTimer: { title: item.title, colorKey: pColor, durationMs: item.durationMinutes! * 60 * 1000 } })}
               >
                 <Ionicons name="timer-outline" size={20} color={colors.text} style={{ marginRight: 6 }} />
                 <ThemeText variant="caption" colorKey="text">{item.durationMinutes}m Therapy</ThemeText>
               </TouchableOpacity>
             )}
-            <TouchableOpacity 
-              style={[styles.checkBtn, { backgroundColor: item.completedToday ? colors[pColor] : colors.surface1 }]} 
+            <TouchableOpacity
+              style={[styles.checkBtn, { backgroundColor: item.completedToday ? colors[pColor] : colors.surface1 }]}
               onPress={() => toggleCompletion(item.id)}
             >
               <Ionicons name="checkmark" size={24} color={item.completedToday ? colors.base : colors.subtext0} />
@@ -217,22 +314,33 @@ export const RemindersScreen = () => {
     );
   };
 
-  const filteredReminders = selectedProfileId 
+  const filteredReminders = selectedProfileId
     ? reminders.filter(r => r.profileId === selectedProfileId)
     : reminders;
 
+  const isLoading = isPremiumSync && (convexProfiles === undefined || convexReminders === undefined);
+
   return (
     <View style={[styles.container, { backgroundColor: colors.base }]}>
+      {/* Premium sync indicator */}
+      {isPremiumSync && (
+        <View style={[styles.syncBadge, { backgroundColor: colors.surface0 }]}>
+          <Ionicons name="cloud" size={14} color={colors.sky} />
+          <ThemeText variant="caption" colorKey="sky" style={{ marginLeft: 6 }}>Live Sync Active</ThemeText>
+        </View>
+      )}
+
+      {/* Profile tabs */}
       <View style={styles.profilesHeader}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.profileChip, { backgroundColor: selectedProfileId === null ? colors.text : colors.surface0 }]}
             onPress={() => setSelectedProfileId(null)}
           >
             <ThemeText variant="body" colorKey={selectedProfileId === null ? 'base' : 'text'}>All</ThemeText>
           </TouchableOpacity>
           {profiles.map(p => (
-            <TouchableOpacity 
+            <TouchableOpacity
               key={p.id}
               style={[styles.profileChip, { backgroundColor: selectedProfileId === p.id ? colors[p.colorKey as keyof ThemeColors] : colors.surface0 }]}
               onPress={() => setSelectedProfileId(p.id)}
@@ -241,7 +349,7 @@ export const RemindersScreen = () => {
               <ThemeText variant="body" colorKey={selectedProfileId === p.id ? 'base' : 'text'}>{p.name}</ThemeText>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.profileChip, { backgroundColor: colors.surface0, borderStyle: 'dashed', borderWidth: 1, borderColor: colors.subtext0, paddingHorizontal: 12 }]}
             onPress={openAddProfile}
           >
@@ -250,15 +358,22 @@ export const RemindersScreen = () => {
         </ScrollView>
       </View>
 
-      <FlatList
-        data={[...filteredReminders].sort((a,b) => (a.timeHour * 60 + a.timeMinute) - (b.timeHour * 60 + b.timeMinute))}
-        keyExtractor={item => item.id}
-        renderItem={renderReminder}
-        contentContainerStyle={styles.listContent}
-      />
+      {isLoading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={colors.sky} />
+          <ThemeText variant="body" colorKey="subtext0" style={{ marginTop: 16 }}>Connecting to Live Sync...</ThemeText>
+        </View>
+      ) : (
+        <FlatList
+          data={[...filteredReminders].sort((a, b) => (a.timeHour * 60 + a.timeMinute) - (b.timeHour * 60 + b.timeMinute))}
+          keyExtractor={item => item.id}
+          renderItem={renderReminder}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
 
-      <TouchableOpacity 
-        style={[styles.fab, { backgroundColor: colors.mauve, shadowColor: colors.crust }]} 
+      <TouchableOpacity
+        style={[styles.fab, { backgroundColor: colors.mauve, shadowColor: colors.crust }]}
         onPress={() => setAddVisible(true)}
       >
         <Ionicons name="add" size={32} color={colors.base} />
@@ -270,20 +385,18 @@ export const RemindersScreen = () => {
           <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
             <View style={[styles.modalContent, { backgroundColor: colors.base }]}>
               <ThemeText variant="h2" style={{ marginBottom: 16 }}>New Routine</ThemeText>
-              
               <ThemeText variant="caption" colorKey="subtext0" style={{ marginBottom: 8 }}>ROUTINE NAME</ThemeText>
-              <TextInput 
+              <TextInput
                 style={[styles.textInput, { backgroundColor: colors.surface0, color: colors.text, marginBottom: 16 }]}
                 placeholder="e.g. Morning Yoga"
                 placeholderTextColor={colors.subtext0}
                 value={newTitle}
                 onChangeText={setNewTitle}
               />
-
               <ThemeText variant="caption" colorKey="subtext0" style={{ marginBottom: 8 }}>ASSIGN TO PROFILE</ThemeText>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginBottom: 16 }}>
                 {profiles.map(p => (
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     key={p.id}
                     style={[styles.profileChip, { backgroundColor: newProfileId === p.id ? colors[p.colorKey as keyof ThemeColors] : colors.surface0 }]}
                     onPress={() => setNewProfileId(p.id)}
@@ -292,7 +405,6 @@ export const RemindersScreen = () => {
                   </TouchableOpacity>
                 ))}
               </ScrollView>
-
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
                 <View style={{ flex: 1, marginRight: 8 }}>
                   <ThemeText variant="caption" colorKey="subtext0" style={{ marginBottom: 8 }}>HOUR (0-23)</ThemeText>
@@ -303,10 +415,8 @@ export const RemindersScreen = () => {
                   <TextInput style={[styles.textInput, { backgroundColor: colors.surface0, color: colors.text }]} keyboardType="numeric" value={newMinute} onChangeText={setNewMinute} />
                 </View>
               </View>
-
               <ThemeText variant="caption" colorKey="subtext0" style={{ marginBottom: 8 }}>OPTIONAL THERAPY TIMER (MINUTES)</ThemeText>
               <TextInput style={[styles.textInput, { backgroundColor: colors.surface0, color: colors.text, marginBottom: 24 }]} keyboardType="numeric" placeholder="Leave blank if none" placeholderTextColor={colors.subtext0} value={newDuration} onChangeText={setNewDuration} />
-              
               <View style={{ flexDirection: 'row', width: '100%' }}>
                 <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.surface1, flex: 1, marginRight: 8 }]} onPress={() => setAddVisible(false)}>
                   <ThemeText variant="body" colorKey="text">Cancel</ThemeText>
@@ -333,48 +443,33 @@ export const RemindersScreen = () => {
                   </TouchableOpacity>
                 )}
               </View>
-              
               <ThemeText variant="caption" colorKey="subtext0" style={{ marginBottom: 8 }}>PROFILE NAME</ThemeText>
-              <TextInput 
+              <TextInput
                 style={[styles.textInput, { backgroundColor: colors.surface0, color: colors.text, marginBottom: 16 }]}
                 placeholder="e.g. John, Mittens"
                 placeholderTextColor={colors.subtext0}
                 value={profileName}
                 onChangeText={setProfileName}
               />
-
               <ThemeText variant="caption" colorKey="subtext0" style={{ marginBottom: 8 }}>PROFILE CATEGORY</ThemeText>
               <View style={{ flexDirection: 'row', marginBottom: 16 }}>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, { flex: 1, marginRight: 8, paddingVertical: 12, backgroundColor: profileType === 'Person' ? colors.sapphire : colors.surface0 }]}
-                  onPress={() => setProfileType('Person')}
-                >
+                <TouchableOpacity style={[styles.modalBtn, { flex: 1, marginRight: 8, paddingVertical: 12, backgroundColor: profileType === 'Person' ? colors.sapphire : colors.surface0 }]} onPress={() => setProfileType('Person')}>
                   <ThemeText variant="body" colorKey={profileType === 'Person' ? 'base' : 'text'}>Person</ThemeText>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, { flex: 1, marginLeft: 8, paddingVertical: 12, backgroundColor: profileType === 'Pet' ? colors.rosewater : colors.surface0 }]}
-                  onPress={() => setProfileType('Pet')}
-                >
+                <TouchableOpacity style={[styles.modalBtn, { flex: 1, marginLeft: 8, paddingVertical: 12, backgroundColor: profileType === 'Pet' ? colors.rosewater : colors.surface0 }]} onPress={() => setProfileType('Pet')}>
                   <ThemeText variant="body" colorKey={profileType === 'Pet' ? 'base' : 'text'}>Pet</ThemeText>
                 </TouchableOpacity>
               </View>
-
               <ThemeText variant="caption" colorKey="subtext0" style={{ marginBottom: 8 }}>PROFILE COLOR</ThemeText>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
                 {(['blue', 'lavender', 'sapphire', 'sky', 'teal', 'green', 'yellow', 'peach', 'maroon', 'red', 'mauve', 'pink', 'flamingo', 'rosewater'] as (keyof ThemeColors)[]).map(c => (
                   <TouchableOpacity
                     key={c}
-                    style={{
-                      width: 48, height: 48, borderRadius: 24, marginHorizontal: 6,
-                      backgroundColor: colors[c],
-                      borderWidth: profileColor === c ? 3 : 0,
-                      borderColor: colors.text
-                    }}
+                    style={{ width: 48, height: 48, borderRadius: 24, marginHorizontal: 6, backgroundColor: colors[c], borderWidth: profileColor === c ? 3 : 0, borderColor: colors.text }}
                     onPress={() => setProfileColor(c)}
                   />
                 ))}
               </ScrollView>
-
               <View style={{ flexDirection: 'row', width: '100%' }}>
                 <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.surface1, flex: 1, marginRight: 8 }]} onPress={() => setProfileModalVisible(false)}>
                   <ThemeText variant="body" colorKey="text">Cancel</ThemeText>
@@ -393,6 +488,16 @@ export const RemindersScreen = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  syncBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    margin: 12,
+    marginBottom: 0,
+  },
   profilesHeader: {
     paddingVertical: 16,
     paddingHorizontal: 16,
@@ -498,5 +603,5 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-  }
+  },
 });

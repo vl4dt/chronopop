@@ -7,6 +7,7 @@ import { ThemeColors } from '../theme/colors';
 import { ThemeText } from '../components/ThemeText';
 import { ThemeColorPicker } from '../components/ThemeColorPicker';
 import { Ionicons } from '@expo/vector-icons';
+import { logStat } from '../utils/stats';
 
 type Timer = {
   id: string;
@@ -87,6 +88,11 @@ export const TimersScreen = () => {
             const isWork = tm.pomodoroState === 'work';
             const workMs = tm.pomodoroWorkMs || (25 * 60 * 1000);
             const breakMs = tm.pomodoroBreakMs || (5 * 60 * 1000);
+            
+            if (isWork) {
+              const minutes = Math.floor(workMs / (60 * 1000));
+              logStat('focus', minutes);
+            }
             
             Alert.alert(isWork ? 'Focus Session Complete!' : 'Break Complete!', 'Starting the next phase.');
             return {
@@ -231,7 +237,7 @@ export const TimersScreen = () => {
           </View>
         )}
         
-        <View style={styles.headerRow}>
+        <View style={styles.cardHeader}>
           <TextInput
             style={[styles.nameInput, { color: colors.text }]}
             value={item.name}
