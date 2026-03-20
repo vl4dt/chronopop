@@ -1,6 +1,25 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 
+export const getSyncProfile = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.query("sync_profiles").withIndex("by_device", (q: any) => q.eq("deviceId", args.deviceId)).first();
+  },
+});
+
+export const updateSyncProfileProStatus = mutation({
+  args: { deviceId: v.string(), isPro: v.boolean() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.query("sync_profiles").withIndex("by_device", (q: any) => q.eq("deviceId", args.deviceId)).first();
+    if (existing) {
+      await ctx.db.patch(existing._id, { isPro: args.isPro, updatedAt: Date.now() });
+    } else {
+      await ctx.db.insert("sync_profiles", { deviceId: args.deviceId, isPro: args.isPro, updatedAt: Date.now() });
+    }
+  },
+});
+
 // --- Profiles ---
 export const getProfiles = query({
   args: { deviceId: v.string() },

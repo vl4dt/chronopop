@@ -69,7 +69,8 @@
             "frequentUpdates": true
           }
         }
-      ]
+      ],
+      "react-native-purchases"
     ]
   }
 }

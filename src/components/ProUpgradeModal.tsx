@@ -4,6 +4,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { ThemeText } from './ThemeText';
 import { Ionicons } from '@expo/vector-icons';
 import { useSync } from '../context/SyncContext';
+import { PurchasesPackage } from 'react-native-purchases';
 
 interface ProUpgradeModalProps {
   visible: boolean;
@@ -12,11 +13,11 @@ interface ProUpgradeModalProps {
 
 export const ProUpgradeModal = ({ visible, onClose }: ProUpgradeModalProps) => {
   const { colors } = useTheme();
-  const { upgradeToPro } = useSync();
+  const { purchasePackage, restorePurchases, offerings, isPro } = useSync();
 
-  const handleUpgrade = async () => {
-    await upgradeToPro();
-    onClose();
+  const handlePurchase = async (pkg: PurchasesPackage) => {
+    await purchasePackage(pkg);
+    if (isPro) onClose();
   };
 
   const Feature = ({ icon, title, description }: { icon: any, title: string, description: string }) => (
@@ -79,16 +80,32 @@ export const ProUpgradeModal = ({ visible, onClose }: ProUpgradeModalProps) => {
             </View>
 
             <View style={styles.pricingSection}>
-              <TouchableOpacity style={[styles.buyBtn, { backgroundColor: colors.mauve }]} onPress={handleUpgrade}>
-                <ThemeText variant="body" colorKey="base" style={{ fontWeight: 'bold' }}>Unlock Pro – $2.99/mo</ThemeText>
-              </TouchableOpacity>
+              {offerings?.current?.availablePackages.map((pkg) => (
+                <TouchableOpacity 
+                  key={pkg.identifier}
+                  style={[styles.buyBtn, { backgroundColor: colors.mauve, marginBottom: 12 }]} 
+                  onPress={() => handlePurchase(pkg)}
+                >
+                  <ThemeText variant="body" colorKey="base" style={{ fontWeight: 'bold' }}>
+                    {pkg.product.title.replace(' (Chronopop)', '')} – {pkg.product.priceString}
+                  </ThemeText>
+                </TouchableOpacity>
+              ))}
+
+              {!offerings?.current && (
+                <>
+                  <TouchableOpacity style={[styles.buyBtn, { backgroundColor: colors.mauve, opacity: 0.5 }]} disabled>
+                    <ThemeText variant="body" colorKey="base">Loading offerings...</ThemeText>
+                  </TouchableOpacity>
+                </>
+              )}
               
-              <TouchableOpacity style={[styles.buyBtn, { backgroundColor: colors.surface1, marginTop: 12 }]} onPress={handleUpgrade}>
-                <ThemeText variant="body" style={{ fontWeight: 'bold' }}>Lifetime Access – $14.99</ThemeText>
+              <TouchableOpacity style={styles.restoreBtn} onPress={restorePurchases}>
+                <ThemeText variant="caption" colorKey="subtext0" style={{ fontWeight: 'bold' }}>Restore Purchases</ThemeText>
               </TouchableOpacity>
               
               <ThemeText variant="caption" colorKey="subtext1" style={{ textAlign: 'center', marginTop: 16 }}>
-                One-time purchase or simple subscription. Cancel anytime.
+                Subscriptions auto-renew. Lifetime is a one-time payment. Cancel anytime.
               </ThemeText>
             </View>
           </ScrollView>
@@ -149,5 +166,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  restoreBtn: {
+    marginTop: 16,
+    alignItems: 'center',
+    padding: 8,
   }
 });

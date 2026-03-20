@@ -69,4 +69,9 @@ export default defineSchema({
     remindersJson: v.string(),
     timestamp: v.number(),
   }).index("by_device", ["deviceId"]),
+  sync_profiles: defineTable({
+    deviceId: v.string(),
+    isPro: v.boolean(),
+    updatedAt: v.number(),
+  }).index("by_device", ["deviceId"]),
 });
