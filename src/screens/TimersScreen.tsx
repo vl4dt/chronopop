@@ -163,7 +163,7 @@ export const TimersScreen = () => {
     // In a real app, this might be better handled by observing the finished state change
     const finishedTimers = timers.filter(t => t.isRunning && t.startTimeMs && (t.baseTimeMs - (Date.now() - t.startTimeMs) <= 0));
     finishedTimers.forEach(tm => {
-      toggleTimerMutable({ id: tm._id, isRunning: false, now: Date.now() });
+      toggleTimerMutable({ id: tm._id, isRunning: false });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
       if (tm.isPomodoro) {
@@ -182,7 +182,7 @@ export const TimersScreen = () => {
           name: nextState === 'work' ? 'Deep Focus' : 'Break Time',
           colorKey: nextState === 'work' ? 'red' : 'green'
         });
-        toggleTimerMutable({ id: tm._id, isRunning: true, now: Date.now() });
+        toggleTimerMutable({ id: tm._id, isRunning: true });
       } else {
         Alert.alert('Timer Finished!', `Your timer "${tm.name}" has completed!`);
       }
@@ -213,7 +213,7 @@ export const TimersScreen = () => {
       pomodoroWorkMs: workMs,
       pomodoroBreakMs: breakMs,
     }).then(id => {
-       if (id) toggleTimerMutable({ id: id as Id<"timers">, isRunning: true, now: Date.now() });
+       if (id) toggleTimerMutable({ id: id as Id<"timers">, isRunning: true });
     });
     
     setPomoConfigVisible(false);
@@ -232,7 +232,7 @@ export const TimersScreen = () => {
        const displayTime = tm.baseTimeMs - (tm.startTimeMs ? (Date.now() - tm.startTimeMs) : 0);
        updatePomodoroActivity(!isRunning, tm.pomodoroState === 'work' ? 'Work' : 'Break', new Date(Date.now() + displayTime));
     }
-    toggleTimerMutable({ id, isRunning, now: Date.now() });
+    toggleTimerMutable({ id, isRunning });
   };
 
   const handleAddTime = (id: Id<"timers">, mins: number, secs: number) => {

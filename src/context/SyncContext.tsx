@@ -2,9 +2,13 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getDeviceSyncCode } from '../utils/sync';
 
+import { api } from '../../convex/_generated/api';
+import { useQuery } from 'convex/react';
+
 interface SyncContextType {
   syncCode: string;
   isPremiumSync: boolean;
+  clockOffset: number;
   setSyncCode: (code: string) => Promise<void>;
   enablePremiumSync: () => Promise<void>;
   disablePremiumSync: () => void;
@@ -13,6 +17,7 @@ interface SyncContextType {
 const SyncContext = createContext<SyncContextType>({
   syncCode: '',
   isPremiumSync: false,
+  clockOffset: 0,
   setSyncCode: async () => {},
   enablePremiumSync: async () => {},
   disablePremiumSync: () => {},
@@ -23,6 +28,18 @@ export const useSync = () => useContext(SyncContext);
 export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const [syncCode, setSyncCodeState] = useState('');
   const [isPremiumSync, setIsPremiumSync] = useState(false);
+  const [clockOffset, setClockOffset] = useState(0);
+
+  const serverTime = useQuery(api.db.getServerTime);
+
+  useEffect(() => {
+    if (serverTime) {
+      // Calculate offset: serverTime - localTime
+      // We assume the network latency is negligible for now, or half the RTT
+      // Since this is a simple query, it's a good approximation
+      setClockOffset(serverTime - Date.now());
+    }
+  }, [serverTime]);
 
   useEffect(() => {
     const init = async () => {
@@ -52,7 +69,7 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   return (
-    <SyncContext.Provider value={{ syncCode, isPremiumSync, setSyncCode, enablePremiumSync, disablePremiumSync }}>
+    <SyncContext.Provider value={{ syncCode, isPremiumSync, clockOffset, setSyncCode, enablePremiumSync, disablePremiumSync }}>
       {children}
     </SyncContext.Provider>
   );

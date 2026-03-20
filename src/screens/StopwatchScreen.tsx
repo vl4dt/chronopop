@@ -129,7 +129,7 @@ export const StopwatchScreen = () => {
           <StopwatchCard 
             sw={item} 
             onDelete={(id) => deleteStopwatchMutable({ id })}
-            onToggle={(id, isRunning) => toggleStopwatchMutable({ id, isRunning, now: Date.now() })}
+            onToggle={(id, isRunning) => toggleStopwatchMutable({ id, isRunning })}
             onReset={(id) => resetStopwatchMutable({ id })}
             onUpdate={(id, patch) => updateStopwatchMutable ? updateStopwatchMutable({ id, ...patch }) : null}
             onPickColor={(id) => { setSelectedId(id); setPickerVisible(true); }}

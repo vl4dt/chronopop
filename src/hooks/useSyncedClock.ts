@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSync } from '../context/SyncContext';
 
 interface SyncedClockProps {
   startTimeMs?: number;
@@ -8,6 +9,7 @@ interface SyncedClockProps {
 }
 
 export const useSyncedClock = ({ startTimeMs, baseTimeMs, isRunning, type }: SyncedClockProps) => {
+  const { clockOffset } = useSync();
   const [displayTime, setDisplayTime] = useState(baseTimeMs);
 
   useEffect(() => {
@@ -18,7 +20,7 @@ export const useSyncedClock = ({ startTimeMs, baseTimeMs, isRunning, type }: Syn
     }
 
     const calculate = () => {
-      const now = Date.now();
+      const now = Date.now() + clockOffset;
       const elapsedSinceStart = now - startTimeMs;
       
       if (type === 'stopwatch') {

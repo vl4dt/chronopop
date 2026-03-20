@@ -245,21 +245,22 @@ export const updateTimer = mutation({
 });
 
 export const toggleTimer = mutation({
-  args: { id: v.id("timers"), isRunning: v.boolean(), now: v.number() },
+  args: { id: v.id("timers"), isRunning: v.boolean() },
   handler: async (ctx, args) => {
     const timer = await ctx.db.get(args.id);
     if (!timer) return;
+    const now = Date.now();
 
     if (args.isRunning) {
       // Starting/Resuming
       await ctx.db.patch(args.id, {
         isRunning: true,
-        startTimeMs: args.now,
+        startTimeMs: now,
       });
     } else {
       // Pausing
       if (timer.isRunning && timer.startTimeMs) {
-        const elapsed = args.now - timer.startTimeMs;
+        const elapsed = now - timer.startTimeMs;
         const newBaseTime = Math.max(0, timer.baseTimeMs - elapsed);
         await ctx.db.patch(args.id, {
           isRunning: false,
@@ -323,19 +324,20 @@ export const updateStopwatch = mutation({
 });
 
 export const toggleStopwatch = mutation({
-  args: { id: v.id("stopwatches"), isRunning: v.boolean(), now: v.number() },
+  args: { id: v.id("stopwatches"), isRunning: v.boolean() },
   handler: async (ctx, args) => {
     const sw = await ctx.db.get(args.id);
     if (!sw) return;
+    const now = Date.now();
 
     if (args.isRunning) {
       await ctx.db.patch(args.id, {
         isRunning: true,
-        startTimeMs: args.now,
+        startTimeMs: now,
       });
     } else {
       if (sw.isRunning && sw.startTimeMs) {
-        const elapsed = args.now - sw.startTimeMs;
+        const elapsed = now - sw.startTimeMs;
         await ctx.db.patch(args.id, {
           isRunning: false,
           baseTimeMs: sw.baseTimeMs + elapsed,
@@ -435,5 +437,12 @@ export const reorderWorldClocks = mutation({
     for (const shift of args.shifts) {
       await ctx.db.patch(shift.id, { order: shift.order });
     }
+  },
+});
+
+export const getServerTime = query({
+  args: {},
+  handler: async () => {
+    return Date.now();
   },
 });
