@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, TextInput } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert, Modal, ScrollView } from 'react-native';
+import { useRoute } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
 import { ThemeColors } from '../theme/colors';
@@ -17,7 +18,14 @@ type Timer = {
   isRunning: boolean;
   lastTickTime: number;
   isFinished: boolean;
+  isPomodoro?: boolean;
+  pomodoroState?: 'work' | 'break';
+  pomodoroWorkMs?: number;
+  pomodoroBreakMs?: number;
 };
+
+const POMODORO_WORK_MS = 25 * 60 * 1000;
+const POMODORO_BREAK_MS = 5 * 60 * 1000;
 
 const COLOR_OPTIONS: (keyof ThemeColors)[] = ['blue', 'sapphire', 'teal', 'green', 'yellow', 'peach', 'red', 'mauve', 'pink'];
 
@@ -30,11 +38,37 @@ const formatTime = (ms: number) => {
 
 export const TimersScreen = () => {
   const { colors } = useTheme();
+  const route = useRoute<any>();
   const [timers, setTimers] = useState<Timer[]>([]);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   
+  // Pomodoro Configuration
+  const [pomoConfigVisible, setPomoConfigVisible] = useState(false);
+  const [pomoWorkMin, setPomoWorkMin] = useState('25');
+  const [pomoBreakMin, setPomoBreakMin] = useState('5');
+  
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (route.params?.createTimer) {
+      const { title, colorKey, durationMs } = route.params.createTimer;
+      const newTm: Timer = {
+        id: Date.now().toString(),
+        name: title,
+        colorKey: colorKey || 'blue',
+        pattern: 0,
+        originalDurationMs: durationMs,
+        timeRemainingMs: durationMs,
+        isRunning: true,
+        lastTickTime: Date.now(),
+        isFinished: false,
+      };
+      setTimers(prev => [...prev, newTm]);
+      // Clear params to avoid re-triggering
+      route.params.createTimer = undefined;
+    }
+  }, [route.params?.createTimer]);
 
   useEffect(() => {
     tickRef.current = setInterval(() => {
@@ -47,19 +81,38 @@ export const TimersScreen = () => {
         
         if (newRemaining === 0) {
           playHapticPattern(tm.pattern);
-          return { ...tm, timeRemainingMs: 0, isRunning: false, isFinished: true, lastTickTime: now };
+          
+          
+          if (tm.isPomodoro) {
+            const isWork = tm.pomodoroState === 'work';
+            const workMs = tm.pomodoroWorkMs || (25 * 60 * 1000);
+            const breakMs = tm.pomodoroBreakMs || (5 * 60 * 1000);
+            
+            Alert.alert(isWork ? 'Focus Session Complete!' : 'Break Complete!', 'Starting the next phase.');
+            return {
+              ...tm,
+              pomodoroState: isWork ? 'break' : 'work',
+              timeRemainingMs: isWork ? breakMs : workMs,
+              lastTickTime: now,
+              name: isWork ? 'Break Time' : 'Deep Focus',
+              colorKey: isWork ? 'green' : 'red',
+            };
+          }
+
+          Alert.alert('Timer Finished!', `Your timer "${tm.name}" has completed!`);
+          return { ...tm, timeRemainingMs: 0, isFinished: true, isRunning: false, lastTickTime: now };
         }
         
         return { ...tm, timeRemainingMs: newRemaining, lastTickTime: now };
       }));
-    }, 50);
+    }, 100);
     return () => {
       if (tickRef.current) clearInterval(tickRef.current);
     };
   }, []);
 
-  const playHapticPattern = (pattern: number) => {
-    // Fire-and-forget haptic sequences to emulate different "sounds"
+  const playHapticPattern = async (pattern: number) => {
+    // Emulators don't vibrate, but we can still call Haptics for physical devices
     if (pattern === 0) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } else if (pattern === 1) {
@@ -86,7 +139,30 @@ export const TimersScreen = () => {
     setTimers(prev => [...prev, newTm]);
   };
 
-  const deleteTm = (id: string) => {
+  const addPomodoroTimer = () => {
+    const workMs = parseInt(pomoWorkMin || '25') * 60 * 1000;
+    const breakMs = parseInt(pomoBreakMin || '5') * 60 * 1000;
+    
+    const newTm: Timer = {
+      id: Date.now().toString(),
+      name: 'Deep Focus',
+      colorKey: 'red',
+      pattern: 0,
+      originalDurationMs: workMs,
+      timeRemainingMs: workMs,
+      isRunning: true,
+      lastTickTime: Date.now(),
+      isFinished: false,
+      isPomodoro: true,
+      pomodoroState: 'work',
+      pomodoroWorkMs: workMs,
+      pomodoroBreakMs: breakMs,
+    };
+    setPomoConfigVisible(false);
+    setTimers(prev => [newTm, ...prev]);
+  };
+
+  const deleteTimer = (id: string) => {
     setTimers(prev => prev.filter(tm => tm.id !== id));
   };
 
@@ -135,25 +211,34 @@ export const TimersScreen = () => {
     }));
   };
 
-  const renderItem = ({ item }: { item: Timer }) => {
+  const renderTimer = ({ item }: { item: Timer }) => {
     return (
       <View style={[
         styles.card, 
         { 
           backgroundColor: colors.surface0, 
-          shadowColor: colors.crust,
-          borderColor: item.isFinished ? colors[item.colorKey] : 'transparent',
-          borderWidth: item.isFinished ? 2 : 0,
+          borderColor: item.isPomodoro ? colors.red : (item.isFinished ? colors[item.colorKey] : 'transparent'),
+          borderWidth: (item.isFinished || item.isPomodoro) ? 2 : 0,
+          shadowColor: colors.crust 
         }
       ]}>
-        <View style={styles.cardHeader}>
+        {item.isPomodoro && (
+          <View style={[styles.pomoBadge, { backgroundColor: colors.surface1 }]}>
+            <Ionicons name="flame" size={16} color={item.pomodoroState === 'work' ? colors.red : colors.green} />
+            <ThemeText variant="caption" colorKey={item.pomodoroState === 'work' ? 'red' : 'green'} style={{ fontWeight: 'bold', marginLeft: 6 }}>
+              POMODORO • {item.pomodoroState === 'work' ? 'WORK' : 'BREAK'}
+            </ThemeText>
+          </View>
+        )}
+        
+        <View style={styles.headerRow}>
           <TextInput
             style={[styles.nameInput, { color: colors.text }]}
             value={item.name}
             onChangeText={(text) => setTimers(prev => prev.map(t => t.id === item.id ? { ...t, name: text } : t))}
             placeholderTextColor={colors.subtext0}
           />
-          <TouchableOpacity onPress={() => deleteTm(item.id)}>
+          <TouchableOpacity onPress={() => deleteTimer(item.id)}>
             <Ionicons name="close" size={24} color={colors.subtext0} />
           </TouchableOpacity>
         </View>
@@ -204,8 +289,8 @@ export const TimersScreen = () => {
       <FlatList
         data={timers}
         keyExtractor={item => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
+        renderItem={renderTimer}
+        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <ThemeText variant="h2" colorKey="subtext0">No Timers</ThemeText>
@@ -213,13 +298,66 @@ export const TimersScreen = () => {
           </View>
         }
       />
+      
+      <View style={styles.fabContainer}>
+        <TouchableOpacity 
+          style={[styles.fab, { backgroundColor: colors.surface1, marginRight: 16 }]} 
+          onPress={() => setPomoConfigVisible(true)}
+        >
+          <Ionicons name="flame" size={24} color={colors.red} />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.fab, { backgroundColor: colors.mauve }]} 
+          onPress={addTimer}
+        >
+          <Ionicons name="add" size={32} color={colors.base} />
+        </TouchableOpacity>
+      </View>
 
-      <TouchableOpacity 
-        style={[styles.fab, { backgroundColor: colors.mauve, shadowColor: colors.crust }]} 
-        onPress={addTimer}
-      >
-        <Ionicons name="add" size={32} color={colors.base} />
-      </TouchableOpacity>
+      {pomoConfigVisible && (
+        <Modal visible transparent animationType="fade">
+          <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+            <View style={[styles.pomoConfigBox, { backgroundColor: colors.base, borderColor: colors.crust }]}>
+              <Ionicons name="flame" size={48} color={colors.red} style={{ marginBottom: 16 }} />
+              <ThemeText variant="h2" style={{ marginBottom: 8, textAlign: 'center' }}>Focus Settings</ThemeText>
+              <ThemeText variant="body" colorKey="subtext0" style={{ textAlign: 'center', marginBottom: 24 }}>
+                Customize your Pomodoro intervals for maximum productivity.
+              </ThemeText>
+
+              <View style={styles.pomoRow}>
+                <View style={styles.pomoInputCol}>
+                  <ThemeText variant="caption" colorKey="text" style={{ fontWeight: 'bold', marginBottom: 8 }}>WORK (MIN)</ThemeText>
+                  <TextInput
+                    style={[styles.pomoInput, { backgroundColor: colors.surface0, color: colors.text }]}
+                    keyboardType="numeric"
+                    value={pomoWorkMin}
+                    onChangeText={setPomoWorkMin}
+                  />
+                </View>
+
+                <View style={styles.pomoInputCol}>
+                  <ThemeText variant="caption" colorKey="text" style={{ fontWeight: 'bold', marginBottom: 8 }}>BREAK (MIN)</ThemeText>
+                  <TextInput
+                    style={[styles.pomoInput, { backgroundColor: colors.surface0, color: colors.text }]}
+                    keyboardType="numeric"
+                    value={pomoBreakMin}
+                    onChangeText={setPomoBreakMin}
+                  />
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', width: '100%', marginTop: 32 }}>
+                <TouchableOpacity style={[styles.pomoBtn, { backgroundColor: colors.surface1, flex: 1, marginRight: 8 }]} onPress={() => setPomoConfigVisible(false)}>
+                  <ThemeText variant="body" colorKey="text">Cancel</ThemeText>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.pomoBtn, { backgroundColor: colors.red, flex: 1, marginLeft: 8 }]} onPress={addPomodoroTimer}>
+                  <ThemeText variant="body" colorKey="base" style={{ fontWeight: 'bold' }}>Start Focus</ThemeText>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       {selectedId && (
         <ThemeColorPicker
@@ -313,10 +451,13 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
   },
-  fab: {
+  fabContainer: {
     position: 'absolute',
     bottom: 24,
     right: 24,
+    flexDirection: 'row',
+  },
+  fab: {
     width: 64,
     height: 64,
     borderRadius: 32,
@@ -326,5 +467,51 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  pomoConfigBox: {
+    width: '100%',
+    padding: 24,
+    borderRadius: 32,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  pomoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  pomoInputCol: {
+    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: 8,
+  },
+  pomoInput: {
+    width: '100%',
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
+    paddingVertical: 16,
+    borderRadius: 16,
+  },
+  pomoBtn: {
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pomoBadge: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginBottom: 16,
   }
 });

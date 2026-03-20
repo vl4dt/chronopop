@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, FlatList, Switch, TouchableOpacity, Platform, Modal } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, FlatList, Switch, TouchableOpacity, Platform, Modal, TextInput, Alert } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { ThemeColors } from '../theme/colors';
 import { ThemeText } from '../components/ThemeText';
@@ -11,11 +11,12 @@ type Alarm = {
   time: Date;
   enabled: boolean;
   colorKey: keyof ThemeColors;
+  missionEnabled: boolean;
 };
 
 const initialAlarms: Alarm[] = [
-  { id: '1', time: new Date(new Date().setHours(7, 0, 0, 0)), enabled: true, colorKey: 'peach' },
-  { id: '2', time: new Date(new Date().setHours(8, 30, 0, 0)), enabled: false, colorKey: 'lavender' },
+  { id: '1', time: new Date(new Date().setHours(7, 0, 0, 0)), enabled: true, colorKey: 'peach', missionEnabled: true },
+  { id: '2', time: new Date(new Date().setHours(8, 30, 0, 0)), enabled: false, colorKey: 'lavender', missionEnabled: false },
 ];
 
 export const AlarmsScreen = () => {
@@ -28,6 +29,58 @@ export const AlarmsScreen = () => {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [editingAlarmId, setEditingAlarmId] = useState<string | null>(null);
 
+  // For Missions
+  const [missionVisible, setMissionVisible] = useState(false);
+  const [currentMission, setCurrentMission] = useState({ q: '10 + 10', a: 20 });
+  const [missionInput, setMissionInput] = useState('');
+
+  const playSound = async (loop: boolean = false) => {
+    // Legacy support: We trigger an Alert instead of Audio since ExponentAV requires Custom Dev Client
+    if (!loop) {
+      Alert.alert('Alarm ringing!', 'Time to check your alarms.');
+    }
+  };
+
+  const generateMission = () => {
+    const n1 = Math.floor(Math.random() * 50) + 12;
+    const n2 = Math.floor(Math.random() * 50) + 12;
+    setCurrentMission({ q: `${n1} + ${n2}`, a: n1 + n2 });
+    setMissionInput('');
+  };
+
+  const checkMission = async () => {
+    if (parseInt(missionInput) === currentMission.a) {
+      setMissionVisible(false);
+      Alert.alert('Mission accomplished!', 'Alarm disabled.');
+    }
+  };
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      setAlarms(prev => {
+        let changed = false;
+        const next = prev.map(a => {
+          if (!a.enabled) return a;
+          if (a.time.getHours() === now.getHours() && a.time.getMinutes() === now.getMinutes() && now.getSeconds() === 0) {
+            if (a.missionEnabled) {
+               generateMission();
+               setMissionVisible(true);
+               playSound(true);
+            } else {
+               playSound(false);
+            }
+            changed = true;
+            return { ...a, enabled: false };
+          }
+          return a;
+        });
+        return changed ? next : prev;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const toggleAlarm = (id: string) => {
     setAlarms(prev => prev.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a));
   };
@@ -38,6 +91,7 @@ export const AlarmsScreen = () => {
       time: new Date(),
       enabled: true,
       colorKey: 'blue',
+      missionEnabled: false,
     };
     setAlarms(prev => [...prev, newAlarm]);
   };
@@ -94,6 +148,16 @@ export const AlarmsScreen = () => {
               setPickerVisible(true);
             }}
           />
+          <TouchableOpacity 
+            style={[styles.missionBtn, { backgroundColor: item.missionEnabled ? colors.peach : colors.surface1 }]}
+            onPress={() => {
+              setAlarms(prev => prev.map(a => a.id === item.id ? { ...a, missionEnabled: !a.missionEnabled } : a));
+            }}
+          >
+            <ThemeText variant="caption" colorKey={item.missionEnabled ? 'base' : 'text'} style={{ fontWeight: 'bold' }}>
+              {item.missionEnabled ? 'Mission ON' : 'Mission OFF'}
+            </ThemeText>
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => deleteAlarm(item.id)}>
             <Ionicons name="trash-outline" size={24} color={colors.red} />
           </TouchableOpacity>
@@ -165,6 +229,38 @@ export const AlarmsScreen = () => {
 
               <TouchableOpacity style={[styles.doneButton, { backgroundColor: colors.mauve }]} onPress={() => setShowTimePicker(false)}>
                 <ThemeText variant="body" colorKey="base" style={{ fontWeight: 'bold' }}>Done</ThemeText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {missionVisible && (
+        <Modal visible transparent animationType="slide">
+          <View style={[styles.modalOverlay, { backgroundColor: colors.base }]}>
+            <View style={{ alignItems: 'center', width: '80%' }}>
+              <Ionicons name="warning" size={64} color={colors.peach} style={{ marginBottom: 20 }} />
+              <ThemeText variant="h1" colorKey="peach" style={{ marginBottom: 8 }}>ALARM!</ThemeText>
+              <ThemeText variant="body" colorKey="text" style={{ textAlign: 'center', marginBottom: 32 }}>
+                Solve the math problem to prove you are awake and dismiss the alarm.
+              </ThemeText>
+              
+              <View style={[styles.missionBox, { backgroundColor: colors.surface0, borderColor: colors.crust }]}>
+                <ThemeText variant="h1" colorKey="text">{currentMission.q}</ThemeText>
+              </View>
+
+              <TextInput
+                style={[styles.missionInput, { backgroundColor: colors.surface1, color: colors.text }]}
+                keyboardType="numeric"
+                value={missionInput}
+                onChangeText={setMissionInput}
+                placeholder="?"
+                placeholderTextColor={colors.subtext0}
+                autoFocus
+              />
+
+              <TouchableOpacity style={[styles.doneButton, { backgroundColor: colors.peach, marginTop: 24 }]} onPress={checkMission}>
+                <ThemeText variant="h2" colorKey="base" style={{ fontWeight: 'bold' }}>DISMISS</ThemeText>
               </TouchableOpacity>
             </View>
           </View>
@@ -254,5 +350,26 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     width: '100%',
     alignItems: 'center',
+  },
+  missionBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  missionBox: {
+    padding: 32,
+    borderRadius: 24,
+    borderWidth: 2,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  missionInput: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    width: '100%',
+    padding: 16,
+    borderRadius: 16,
   }
 });

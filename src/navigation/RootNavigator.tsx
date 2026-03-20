@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 
 import { WorldClockScreen } from '../screens/WorldClockScreen';
+import { RemindersScreen } from '../screens/RemindersScreen';
 import { AlarmsScreen } from '../screens/AlarmsScreen';
 import { StopwatchScreen } from '../screens/StopwatchScreen';
 import { TimersScreen } from '../screens/TimersScreen';
@@ -41,6 +42,8 @@ export const RootNavigator = () => {
 
             if (route.name === 'World Clock') {
               iconName = focused ? 'globe' : 'globe-outline';
+            } else if (route.name === 'Routines') {
+              iconName = focused ? 'medical' : 'medical-outline';
             } else if (route.name === 'Alarms') {
               iconName = focused ? 'alarm' : 'alarm-outline';
             } else if (route.name === 'Stopwatch') {
@@ -54,6 +57,7 @@ export const RootNavigator = () => {
         })}
       >
         <Tab.Screen name="World Clock" component={WorldClockScreen} />
+        <Tab.Screen name="Routines" component={RemindersScreen} />
         <Tab.Screen name="Alarms" component={AlarmsScreen} />
         <Tab.Screen name="Stopwatch" component={StopwatchScreen} />
         <Tab.Screen name="Timers" component={TimersScreen} />
