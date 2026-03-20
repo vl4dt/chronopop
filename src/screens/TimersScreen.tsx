@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert, Modal, ScrollView } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert, Modal } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
@@ -9,25 +9,11 @@ import { ThemeColorPicker } from '../components/ThemeColorPicker';
 import { Ionicons } from '@expo/vector-icons';
 import { logStat } from '../utils/stats';
 import { startPomodoroActivity, endPomodoroActivity, updatePomodoroActivity } from '../utils/WidgetService';
-
-type Timer = {
-  id: string;
-  name: string;
-  colorKey: keyof ThemeColors;
-  pattern: number; // For different haptic patterns
-  originalDurationMs: number;
-  timeRemainingMs: number;
-  isRunning: boolean;
-  lastTickTime: number;
-  isFinished: boolean;
-  isPomodoro?: boolean;
-  pomodoroState?: 'work' | 'break';
-  pomodoroWorkMs?: number;
-  pomodoroBreakMs?: number;
-};
-
-const POMODORO_WORK_MS = 25 * 60 * 1000;
-const POMODORO_BREAK_MS = 5 * 60 * 1000;
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
+import { useSync } from '../context/SyncContext';
+import { useSyncedClock } from '../hooks/useSyncedClock';
+import { Doc, Id } from '../../convex/_generated/dataModel';
 
 const COLOR_OPTIONS: (keyof ThemeColors)[] = ['blue', 'sapphire', 'teal', 'green', 'yellow', 'peach', 'red', 'mauve', 'pink'];
 
@@ -38,288 +24,248 @@ const formatTime = (ms: number) => {
   return `${minutes}:${seconds}`;
 };
 
+const TimerCard = ({ 
+  timer, 
+  onDelete, 
+  onToggle, 
+  onReset, 
+  onUpdate, 
+  onPickColor,
+  onAddTime,
+  onSubTime
+}: { 
+  timer: Doc<"timers">; 
+  onDelete: (id: Id<"timers">) => void;
+  onToggle: (id: Id<"timers">, isRunning: boolean) => void;
+  onReset: (id: Id<"timers">) => void;
+  onUpdate: (id: Id<"timers">, patch: any) => void;
+  onPickColor: (id: Id<"timers">) => void;
+  onAddTime: (id: Id<"timers">, mins: number, secs: number) => void;
+  onSubTime: (id: Id<"timers">, mins: number, secs: number) => void;
+}) => {
+  const { colors } = useTheme();
+  const displayTime = useSyncedClock({
+    startTimeMs: timer.startTimeMs,
+    baseTimeMs: timer.baseTimeMs,
+    isRunning: timer.isRunning,
+    type: 'timer'
+  });
+
+  const isFinished = timer.isFinished || (timer.isRunning && displayTime <= 0);
+
+  return (
+    <View style={[
+      styles.card, 
+      { 
+        backgroundColor: colors.surface0, 
+        borderColor: timer.isPomodoro ? colors.red : (isFinished ? colors[timer.colorKey as keyof ThemeColors] : 'transparent'),
+        borderWidth: (isFinished || timer.isPomodoro) ? 2 : 0,
+        shadowColor: colors.crust 
+      }
+    ]}>
+      {timer.isPomodoro && (
+        <View style={[styles.pomoBadge, { backgroundColor: colors.surface1 }]}>
+          <Ionicons name="flame" size={16} color={timer.pomodoroState === 'work' ? colors.red : colors.green} />
+          <ThemeText variant="caption" colorKey={timer.pomodoroState === 'work' ? 'red' : 'green'} style={{ fontWeight: 'bold', marginLeft: 6 }}>
+            POMODORO • {timer.pomodoroState?.toUpperCase() || 'WORK'}
+          </ThemeText>
+        </View>
+      )}
+      
+      <View style={styles.cardHeader}>
+        <TextInput
+          style={[styles.nameInput, { color: colors.text }]}
+          value={timer.name}
+          onChangeText={(text) => onUpdate(timer._id, { name: text })}
+          placeholderTextColor={colors.subtext0}
+        />
+        <TouchableOpacity onPress={() => onDelete(timer._id)}>
+          <Ionicons name="close" size={24} color={colors.subtext0} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.timeContainer}>
+        <ThemeText style={[styles.timeText, { opacity: isFinished ? 0.3 : 1 }]} colorKey={timer.colorKey as keyof ThemeColors}>
+          {formatTime(displayTime)}
+        </ThemeText>
+        {isFinished && (
+          <ThemeText style={styles.finishedText} colorKey={timer.colorKey as keyof ThemeColors} variant="h2">Times Up!</ThemeText>
+        )}
+      </View>
+
+      {!timer.isRunning && !isFinished && (
+        <View style={styles.timeAdders}>
+          <TouchableOpacity style={[styles.timeBtn, { backgroundColor: colors.surface1 }]} onPress={() => onSubTime(timer._id, 1, 0)}>
+            <ThemeText variant="caption">-1m</ThemeText>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.timeBtn, { backgroundColor: colors.surface1 }]} onPress={() => onAddTime(timer._id, 0, 15)}>
+            <ThemeText variant="caption">+15s</ThemeText>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.timeBtn, { backgroundColor: colors.surface1 }]} onPress={() => onAddTime(timer._id, 1, 0)}>
+            <ThemeText variant="caption">+1m</ThemeText>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.timeBtn, { backgroundColor: colors.surface1 }]} onPress={() => onAddTime(timer._id, 5, 0)}>
+            <ThemeText variant="caption">+5m</ThemeText>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <View style={styles.controls}>
+        <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface1 }]} onPress={() => onPickColor(timer._id)}>
+          <View style={[styles.colorDot, { backgroundColor: colors[timer.colorKey as keyof ThemeColors] }]} />
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface1 }]} onPress={() => onReset(timer._id)}>
+          <Ionicons name="refresh" size={20} color={colors.text} />
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.playButton, { backgroundColor: colors[timer.colorKey as keyof ThemeColors], shadowColor: colors.crust }]} onPress={() => onToggle(timer._id, !timer.isRunning)}>
+          <Ionicons name={timer.isRunning ? "pause" : (isFinished ? "refresh" : "play")} size={24} color={colors.base} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
 export const TimersScreen = () => {
   const { colors } = useTheme();
+  const { syncCode } = useSync();
   const route = useRoute<any>();
-  const [timers, setTimers] = useState<Timer[]>([]);
+  
+  const timers = useQuery(api.db.getTimers, { deviceId: syncCode }) || [];
+  const createTimerMutable = useMutation(api.db.createTimer);
+  const updateTimerMutable = useMutation(api.db.updateTimer);
+  const deleteTimerMutable = useMutation(api.db.deleteTimer);
+  const toggleTimerMutable = useMutation(api.db.toggleTimer);
+  const resetTimerMutable = useMutation(api.db.resetTimer);
+
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<Id<"timers"> | null>(null);
   
   // Pomodoro Configuration
   const [pomoConfigVisible, setPomoConfigVisible] = useState(false);
   const [pomoWorkMin, setPomoWorkMin] = useState('25');
   const [pomoBreakMin, setPomoBreakMin] = useState('5');
-  
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (route.params?.createTimer) {
       const { title, colorKey, durationMs } = route.params.createTimer;
-      const newTm: Timer = {
-        id: Date.now().toString(),
+      createTimerMutable({
+        deviceId: syncCode,
         name: title,
         colorKey: colorKey || 'blue',
-        pattern: 0,
-        originalDurationMs: durationMs,
-        timeRemainingMs: durationMs,
-        isRunning: true,
-        lastTickTime: Date.now(),
-        isFinished: false,
-      };
-      setTimers(prev => [...prev, newTm]);
-      // Clear params to avoid re-triggering
+        durationMs: durationMs,
+      });
       route.params.createTimer = undefined;
     }
-  }, [route.params?.createTimer]);
+  }, [route.params?.createTimer, syncCode]);
 
   useEffect(() => {
-    tickRef.current = setInterval(() => {
-      setTimers(prev => prev.map(tm => {
-        if (!tm.isRunning || tm.isFinished) return tm;
-        
-        const now = Date.now();
-        const delta = now - tm.lastTickTime;
-        const newRemaining = Math.max(0, tm.timeRemainingMs - delta);
-        
-        if (newRemaining === 0) {
-          playHapticPattern(tm.pattern);
-          
-          
-          if (tm.isPomodoro) {
-            const isWork = tm.pomodoroState === 'work';
-            const workMs = tm.pomodoroWorkMs || (25 * 60 * 1000);
-            const breakMs = tm.pomodoroBreakMs || (5 * 60 * 1000);
-            
-            if (isWork) {
-              const minutes = Math.floor(workMs / (60 * 1000));
-              logStat('focus', minutes);
-            }
-            
-            Alert.alert(isWork ? 'Focus Session Complete!' : 'Break Complete!', 'Starting the next phase.');
-            
-            const nextState = isWork ? 'break' : 'work';
-            const nextMs = isWork ? breakMs : workMs;
-            const nextEndTime = new Date(Date.now() + nextMs);
-            updatePomodoroActivity(false, nextState === 'work' ? 'Work' : 'Break', nextEndTime);
-
-            return {
-              ...tm,
-              pomodoroState: nextState,
-              timeRemainingMs: nextMs,
-              lastTickTime: now,
-              name: isWork ? 'Break Time' : 'Deep Focus',
-              colorKey: isWork ? 'green' : 'red',
-            };
-          }
-
-          Alert.alert('Timer Finished!', `Your timer "${tm.name}" has completed!`);
-          return { ...tm, timeRemainingMs: 0, isFinished: true, isRunning: false, lastTickTime: now };
-        }
-        
-        return { ...tm, timeRemainingMs: newRemaining, lastTickTime: now };
-      }));
-    }, 100);
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-    };
-  }, []);
-
-  const playHapticPattern = async (pattern: number) => {
-    // Emulators don't vibrate, but we can still call Haptics for physical devices
-    if (pattern === 0) {
+    // Check for finished timers to play haptics
+    // In a real app, this might be better handled by observing the finished state change
+    const finishedTimers = timers.filter(t => t.isRunning && t.startTimeMs && (t.baseTimeMs - (Date.now() - t.startTimeMs) <= 0));
+    finishedTimers.forEach(tm => {
+      toggleTimerMutable({ id: tm._id, isRunning: false, now: Date.now() });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else if (pattern === 1) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    }
-  };
+      
+      if (tm.isPomodoro) {
+        const isWork = tm.pomodoroState === 'work';
+        if (isWork) logStat('focus', Math.floor(tm.durationMs / 60000));
+        Alert.alert(isWork ? 'Focus Session Complete!' : 'Break Complete!', 'Starting the next phase.');
+        
+        // Auto-switch pomodoro state
+        const nextState = isWork ? 'break' : 'work';
+        const nextMs = isWork ? (tm.pomodoroBreakMs || 5 * 60000) : (tm.pomodoroWorkMs || 25 * 60000);
+        updateTimerMutable({ 
+          id: tm._id, 
+          durationMs: nextMs, 
+          // @ts-ignore - we'll update the schema if needed but for now let's just patch
+          pomodoroState: nextState,
+          name: nextState === 'work' ? 'Deep Focus' : 'Break Time',
+          colorKey: nextState === 'work' ? 'red' : 'green'
+        });
+        toggleTimerMutable({ id: tm._id, isRunning: true, now: Date.now() });
+      } else {
+        Alert.alert('Timer Finished!', `Your timer "${tm.name}" has completed!`);
+      }
+    });
+
+  }, [timers]);
 
   const addTimer = () => {
     const randomColor = COLOR_OPTIONS[Math.floor(Math.random() * COLOR_OPTIONS.length)];
-    const pattern = Math.floor(Math.random() * 3);
-    const newTm: Timer = {
-      id: Date.now().toString(),
+    createTimerMutable({
+      deviceId: syncCode,
       name: `Timer ${timers.length + 1}`,
-      colorKey: randomColor,
-      pattern,
-      originalDurationMs: 60 * 1000, // 1 min default
-      timeRemainingMs: 60 * 1000,
-      isRunning: false,
-      lastTickTime: Date.now(),
-      isFinished: false,
-    };
-    setTimers(prev => [...prev, newTm]);
+      colorKey: randomColor as string,
+      durationMs: 60 * 1000,
+    });
   };
 
   const addPomodoroTimer = () => {
     const workMs = parseInt(pomoWorkMin || '25') * 60 * 1000;
     const breakMs = parseInt(pomoBreakMin || '5') * 60 * 1000;
     
-    const newTm: Timer = {
-      id: Date.now().toString(),
+    createTimerMutable({
+      deviceId: syncCode,
       name: 'Deep Focus',
       colorKey: 'red',
-      pattern: 0,
-      originalDurationMs: workMs,
-      timeRemainingMs: workMs,
-      isRunning: true,
-      lastTickTime: Date.now(),
-      isFinished: false,
+      durationMs: workMs,
       isPomodoro: true,
-      pomodoroState: 'work',
       pomodoroWorkMs: workMs,
       pomodoroBreakMs: breakMs,
-    };
-    setPomoConfigVisible(false);
-    setTimers(prev => [newTm, ...prev]);
+    }).then(id => {
+       if (id) toggleTimerMutable({ id: id as Id<"timers">, isRunning: true, now: Date.now() });
+    });
     
-    // Start Live Activity
+    setPomoConfigVisible(false);
     startPomodoroActivity(new Date(Date.now() + workMs), 'Work');
   };
 
-  const deleteTimer = (id: string) => {
-    const tm = timers.find(t => t.id === id);
+  const deleteTimer = (id: Id<"timers">) => {
+    const tm = timers.find(t => t._id === id);
+    if (tm?.isPomodoro) endPomodoroActivity();
+    deleteTimerMutable({ id });
+  };
+
+  const handleToggle = (id: Id<"timers">, isRunning: boolean) => {
+    const tm = timers.find(t => t._id === id);
     if (tm?.isPomodoro) {
-      endPomodoroActivity();
+       const displayTime = tm.baseTimeMs - (tm.startTimeMs ? (Date.now() - tm.startTimeMs) : 0);
+       updatePomodoroActivity(!isRunning, tm.pomodoroState === 'work' ? 'Work' : 'Break', new Date(Date.now() + displayTime));
     }
-    setTimers(prev => prev.filter(tm => tm.id !== id));
+    toggleTimerMutable({ id, isRunning, now: Date.now() });
   };
 
-  const toggleRun = (id: string) => {
-    setTimers(prev => prev.map(tm => {
-      if (tm.id !== id) return tm;
-      if (tm.isFinished) {
-        // Restart
-        return { ...tm, isFinished: false, isRunning: true, timeRemainingMs: tm.originalDurationMs, lastTickTime: Date.now() };
-      }
-      if (tm.isPomodoro) {
-        if (!tm.isRunning) {
-           // Resume
-           updatePomodoroActivity(false, tm.pomodoroState === 'work' ? 'Work' : 'Break', new Date(Date.now() + tm.timeRemainingMs));
-        } else {
-           // Pause
-           updatePomodoroActivity(true, tm.pomodoroState === 'work' ? 'Work' : 'Break', new Date(Date.now() + tm.timeRemainingMs));
-        }
-      }
-
-      return { 
-        ...tm, 
-        isRunning: !tm.isRunning, 
-        lastTickTime: !tm.isRunning ? Date.now() : tm.lastTickTime 
-      };
-    }));
+  const handleAddTime = (id: Id<"timers">, mins: number, secs: number) => {
+    const tm = timers.find(t => t._id === id);
+    if (!tm) return;
+    const addMs = (mins * 60 + secs) * 1000;
+    updateTimerMutable({ id, durationMs: tm.durationMs + addMs });
   };
 
-  const resetTm = (id: string) => {
-    setTimers(prev => prev.map(tm => {
-      if (tm.id !== id) return tm;
-      return { ...tm, isRunning: false, isFinished: false, timeRemainingMs: tm.originalDurationMs };
-    }));
-  };
-
-  const addTime = (id: string, mins: number, secs: number) => {
-    setTimers(prev => prev.map(tm => {
-      if (tm.id !== id) return tm;
-      const addMs = (mins * 60 + secs) * 1000;
-      const newDuration = tm.originalDurationMs + addMs;
-      // If adding time when finished, unfinish it
-      if (tm.isFinished) {
-        return { ...tm, originalDurationMs: newDuration, timeRemainingMs: addMs, isFinished: false };
-      }
-      return { ...tm, originalDurationMs: newDuration, timeRemainingMs: tm.timeRemainingMs + addMs };
-    }));
-  };
-  
-  const subTime = (id: string, mins: number, secs: number) => {
-    setTimers(prev => prev.map(tm => {
-      if (tm.id !== id) return tm;
-      const subMs = (mins * 60 + secs) * 1000;
-      const newDuration = Math.max(0, tm.originalDurationMs - subMs);
-      const newRemaining = Math.max(0, tm.timeRemainingMs - subMs);
-      return { ...tm, originalDurationMs: newDuration, timeRemainingMs: newRemaining };
-    }));
-  };
-
-  const renderTimer = ({ item }: { item: Timer }) => {
-    return (
-      <View style={[
-        styles.card, 
-        { 
-          backgroundColor: colors.surface0, 
-          borderColor: item.isPomodoro ? colors.red : (item.isFinished ? colors[item.colorKey] : 'transparent'),
-          borderWidth: (item.isFinished || item.isPomodoro) ? 2 : 0,
-          shadowColor: colors.crust 
-        }
-      ]}>
-        {item.isPomodoro && (
-          <View style={[styles.pomoBadge, { backgroundColor: colors.surface1 }]}>
-            <Ionicons name="flame" size={16} color={item.pomodoroState === 'work' ? colors.red : colors.green} />
-            <ThemeText variant="caption" colorKey={item.pomodoroState === 'work' ? 'red' : 'green'} style={{ fontWeight: 'bold', marginLeft: 6 }}>
-              POMODORO • {item.pomodoroState === 'work' ? 'WORK' : 'BREAK'}
-            </ThemeText>
-          </View>
-        )}
-        
-        <View style={styles.cardHeader}>
-          <TextInput
-            style={[styles.nameInput, { color: colors.text }]}
-            value={item.name}
-            onChangeText={(text) => setTimers(prev => prev.map(t => t.id === item.id ? { ...t, name: text } : t))}
-            placeholderTextColor={colors.subtext0}
-          />
-          <TouchableOpacity onPress={() => deleteTimer(item.id)}>
-            <Ionicons name="close" size={24} color={colors.subtext0} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.timeContainer}>
-          <ThemeText style={[styles.timeText, { opacity: item.isFinished ? 0.3 : 1 }]} colorKey={item.colorKey}>
-            {formatTime(item.timeRemainingMs)}
-          </ThemeText>
-          {item.isFinished && (
-            <ThemeText style={styles.finishedText} colorKey={item.colorKey} variant="h2">Times Up!</ThemeText>
-          )}
-        </View>
-
-        {!item.isRunning && !item.isFinished && (
-          <View style={styles.timeAdders}>
-            <TouchableOpacity style={[styles.timeBtn, { backgroundColor: colors.surface1 }]} onPress={() => subTime(item.id, 1, 0)}>
-              <ThemeText variant="caption">-1m</ThemeText>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.timeBtn, { backgroundColor: colors.surface1 }]} onPress={() => addTime(item.id, 0, 15)}>
-              <ThemeText variant="caption">+15s</ThemeText>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.timeBtn, { backgroundColor: colors.surface1 }]} onPress={() => addTime(item.id, 1, 0)}>
-              <ThemeText variant="caption">+1m</ThemeText>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.timeBtn, { backgroundColor: colors.surface1 }]} onPress={() => addTime(item.id, 5, 0)}>
-              <ThemeText variant="caption">+5m</ThemeText>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        <View style={styles.controls}>
-          <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface1 }]} onPress={() => { setSelectedId(item.id); setPickerVisible(true); }}>
-            <View style={[styles.colorDot, { backgroundColor: colors[item.colorKey] }]} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface1 }]} onPress={() => resetTm(item.id)}>
-            <Ionicons name="refresh" size={20} color={colors.text} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.playButton, { backgroundColor: colors[item.colorKey], shadowColor: colors.crust }]} onPress={() => toggleRun(item.id)}>
-            <Ionicons name={item.isRunning ? "pause" : (item.isFinished ? "refresh" : "play")} size={24} color={colors.base} />
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
+  const handleSubTime = (id: Id<"timers">, mins: number, secs: number) => {
+    const tm = timers.find(t => t._id === id);
+    if (!tm) return;
+    const subMs = (mins * 60 + secs) * 1000;
+    updateTimerMutable({ id, durationMs: Math.max(0, tm.durationMs - subMs) });
   };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.base }]}>
       <FlatList
         data={timers}
-        keyExtractor={item => item.id}
-        renderItem={renderTimer}
+        keyExtractor={item => item._id}
+        renderItem={({ item }) => (
+          <TimerCard 
+            timer={item} 
+            onDelete={deleteTimer}
+            onToggle={handleToggle}
+            onReset={(id) => resetTimerMutable({ id })}
+            onUpdate={(id, patch) => updateTimerMutable({ id, ...patch })}
+            onPickColor={(id) => { setSelectedId(id); setPickerVisible(true); }}
+            onAddTime={handleAddTime}
+            onSubTime={handleSubTime}
+          />
+        )}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
@@ -393,9 +339,9 @@ export const TimersScreen = () => {
         <ThemeColorPicker
           visible={pickerVisible}
           onClose={() => setPickerVisible(false)}
-          selectedColorKey={timers.find(t => t.id === selectedId)?.colorKey}
+          selectedColorKey={timers.find(t => t._id === selectedId)?.colorKey as keyof ThemeColors}
           onSelectColor={(colorKey) => {
-            setTimers(prev => prev.map(t => t.id === selectedId ? { ...t, colorKey } : t));
+            updateTimerMutable({ id: selectedId, colorKey });
           }}
         />
       )}

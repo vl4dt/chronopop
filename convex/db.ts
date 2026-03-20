@@ -166,3 +166,231 @@ export const syncPull = query({
     return await ctx.db.query("backups").withIndex("by_device", (q: any) => q.eq("deviceId", args.deviceId)).first();
   }
 });
+
+// --- Alarms ---
+export const getAlarms = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.query("alarms").withIndex("by_device", (q: any) => q.eq("deviceId", args.deviceId)).collect();
+  },
+});
+
+export const createAlarm = mutation({
+  args: { deviceId: v.string(), timeUnixMs: v.number(), enabled: v.boolean(), colorKey: v.string(), missionEnabled: v.boolean() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("alarms", args);
+  },
+});
+
+export const updateAlarm = mutation({
+  args: { id: v.id("alarms"), timeUnixMs: v.optional(v.number()), enabled: v.optional(v.boolean()), colorKey: v.optional(v.string()), missionEnabled: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const { id, ...patch } = args;
+    return await ctx.db.patch(id, patch);
+  },
+});
+
+export const deleteAlarm = mutation({
+  args: { id: v.id("alarms") },
+  handler: async (ctx, args) => {
+    return await ctx.db.delete(args.id);
+  },
+});
+
+// --- Timers ---
+export const getTimers = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.query("timers").withIndex("by_device", (q: any) => q.eq("deviceId", args.deviceId)).collect();
+  },
+});
+
+export const createTimer = mutation({
+  args: { 
+    deviceId: v.string(), 
+    name: v.string(), 
+    colorKey: v.string(), 
+    durationMs: v.number(), 
+    isPomodoro: v.optional(v.boolean()),
+    pomodoroWorkMs: v.optional(v.number()),
+    pomodoroBreakMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("timers", {
+      ...args,
+      baseTimeMs: args.durationMs,
+      isRunning: false,
+      isFinished: false,
+    });
+  },
+});
+
+export const updateTimer = mutation({
+  args: { 
+    id: v.id("timers"), 
+    name: v.optional(v.string()), 
+    colorKey: v.optional(v.string()), 
+    durationMs: v.optional(v.number()),
+    pomodoroState: v.optional(v.string())
+  },
+  handler: async (ctx, args) => {
+    const { id, ...patch } = args;
+    // If duration changes, we might need to reset baseTimeMs if not running
+    const existing = await ctx.db.get(id);
+    if (existing && !existing.isRunning && patch.durationMs !== undefined) {
+      return await ctx.db.patch(id, { ...patch, baseTimeMs: patch.durationMs });
+    }
+    return await ctx.db.patch(id, patch);
+  },
+});
+
+export const toggleTimer = mutation({
+  args: { id: v.id("timers"), isRunning: v.boolean(), now: v.number() },
+  handler: async (ctx, args) => {
+    const timer = await ctx.db.get(args.id);
+    if (!timer) return;
+
+    if (args.isRunning) {
+      // Starting/Resuming
+      await ctx.db.patch(args.id, {
+        isRunning: true,
+        startTimeMs: args.now,
+      });
+    } else {
+      // Pausing
+      if (timer.isRunning && timer.startTimeMs) {
+        const elapsed = args.now - timer.startTimeMs;
+        const newBaseTime = Math.max(0, timer.baseTimeMs - elapsed);
+        await ctx.db.patch(args.id, {
+          isRunning: false,
+          baseTimeMs: newBaseTime,
+          startTimeMs: undefined,
+          isFinished: newBaseTime === 0,
+        });
+      }
+    }
+  },
+});
+
+export const resetTimer = mutation({
+  args: { id: v.id("timers") },
+  handler: async (ctx, args) => {
+    const timer = await ctx.db.get(args.id);
+    if (!timer) return;
+    await ctx.db.patch(args.id, {
+      isRunning: false,
+      isFinished: false,
+      baseTimeMs: timer.durationMs,
+      startTimeMs: undefined,
+    });
+  },
+});
+
+export const deleteTimer = mutation({
+  args: { id: v.id("timers") },
+  handler: async (ctx, args) => {
+    return await ctx.db.delete(args.id);
+  },
+});
+
+// --- Stopwatches ---
+export const getStopwatches = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.query("stopwatches").withIndex("by_device", (q: any) => q.eq("deviceId", args.deviceId)).collect();
+  },
+});
+
+export const createStopwatch = mutation({
+  args: { deviceId: v.string(), name: v.string(), colorKey: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("stopwatches", {
+      deviceId: args.deviceId,
+      name: args.name,
+      colorKey: args.colorKey,
+      baseTimeMs: 0,
+      isRunning: false,
+    });
+  },
+});
+
+export const updateStopwatch = mutation({
+  args: { id: v.id("stopwatches"), name: v.optional(v.string()), colorKey: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const { id, ...patch } = args;
+    return await ctx.db.patch(id, patch);
+  },
+});
+
+export const toggleStopwatch = mutation({
+  args: { id: v.id("stopwatches"), isRunning: v.boolean(), now: v.number() },
+  handler: async (ctx, args) => {
+    const sw = await ctx.db.get(args.id);
+    if (!sw) return;
+
+    if (args.isRunning) {
+      await ctx.db.patch(args.id, {
+        isRunning: true,
+        startTimeMs: args.now,
+      });
+    } else {
+      if (sw.isRunning && sw.startTimeMs) {
+        const elapsed = args.now - sw.startTimeMs;
+        await ctx.db.patch(args.id, {
+          isRunning: false,
+          baseTimeMs: sw.baseTimeMs + elapsed,
+          startTimeMs: undefined,
+        });
+      }
+    }
+  },
+});
+
+export const resetStopwatch = mutation({
+  args: { id: v.id("stopwatches") },
+  handler: async (ctx, args) => {
+    // Also delete laps
+    const laps = await ctx.db.query("stopwatchLaps").withIndex("by_stopwatch", (q: any) => q.eq("stopwatchId", args.id)).collect();
+    for (const lap of laps) {
+      await ctx.db.delete(lap._id);
+    }
+    await ctx.db.patch(args.id, {
+      isRunning: false,
+      baseTimeMs: 0,
+      startTimeMs: undefined,
+    });
+  },
+});
+
+export const deleteStopwatch = mutation({
+  args: { id: v.id("stopwatches") },
+  handler: async (ctx, args) => {
+    // Also delete laps
+    const laps = await ctx.db.query("stopwatchLaps").withIndex("by_stopwatch", (q: any) => q.eq("stopwatchId", args.id)).collect();
+    for (const lap of laps) {
+      await ctx.db.delete(lap._id);
+    }
+    return await ctx.db.delete(args.id);
+  },
+});
+
+export const addStopwatchLap = mutation({
+  args: { stopwatchId: v.id("stopwatches"), timeMs: v.number() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("stopwatchLaps", {
+      stopwatchId: args.stopwatchId,
+      timeMs: args.timeMs,
+      timestamp: Date.now(),
+    });
+  },
+});
+
+export const getStopwatchLaps = query({
+  args: { stopwatchId: v.id("stopwatches") },
+  handler: async (ctx, args) => {
+    return await ctx.db.query("stopwatchLaps")
+      .withIndex("by_stopwatch", (q: any) => q.eq("stopwatchId", args.stopwatchId))
+      .order("desc")
+      .collect();
+  },
+});

@@ -8,11 +8,13 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SyncProvider } from './src/context/SyncContext';
 import { configureNotifications, setupAndroidChannel, requestNotificationPermissions } from './src/utils/NotificationService';
+import { useAlarmNotificationSync } from './src/hooks/useAlarmNotificationSync';
 
 const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!);
 
 const AppContent = () => {
   const { isDark } = useTheme();
+  useAlarmNotificationSync();
 
   useEffect(() => {
     // Set up notification behaviour + Android channel at app boot

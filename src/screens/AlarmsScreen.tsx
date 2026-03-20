@@ -1,34 +1,30 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet, FlatList, Switch, TouchableOpacity, Platform, Modal, TextInput, Alert } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { ThemeColors } from '../theme/colors';
 import { ThemeText } from '../components/ThemeText';
 import { ThemeColorPicker } from '../components/ThemeColorPicker';
 import { Ionicons } from '@expo/vector-icons';
-import { scheduleAlarmNotification, cancelAlarmNotification, registerNotifId } from '../utils/NotificationService';
-
-type Alarm = {
-  id: string;
-  time: Date;
-  enabled: boolean;
-  colorKey: keyof ThemeColors;
-  missionEnabled: boolean;
-};
-
-const initialAlarms: Alarm[] = [
-  { id: '1', time: new Date(new Date().setHours(7, 0, 0, 0)), enabled: true, colorKey: 'peach', missionEnabled: true },
-  { id: '2', time: new Date(new Date().setHours(8, 30, 0, 0)), enabled: false, colorKey: 'lavender', missionEnabled: false },
-];
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
+import { useSync } from '../context/SyncContext';
+import { Doc, Id } from '../../convex/_generated/dataModel';
 
 export const AlarmsScreen = () => {
   const { colors } = useTheme();
-  const [alarms, setAlarms] = useState<Alarm[]>(initialAlarms);
+  const { syncCode } = useSync();
+  
+  const alarms = useQuery(api.db.getAlarms, { deviceId: syncCode }) || [];
+  const createAlarmMutable = useMutation(api.db.createAlarm);
+  const updateAlarmMutable = useMutation(api.db.updateAlarm);
+  const deleteAlarmMutable = useMutation(api.db.deleteAlarm);
+
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [selectedAlarmId, setSelectedAlarmId] = useState<string | null>(null);
+  const [selectedAlarmId, setSelectedAlarmId] = useState<Id<"alarms"> | null>(null);
   
   // For time picker
   const [showTimePicker, setShowTimePicker] = useState(false);
-  const [editingAlarmId, setEditingAlarmId] = useState<string | null>(null);
+  const [editingAlarmId, setEditingAlarmId] = useState<Id<"alarms"> | null>(null);
 
   // For Missions
   const [missionVisible, setMissionVisible] = useState(false);
@@ -49,58 +45,38 @@ export const AlarmsScreen = () => {
     }
   };
 
-  // ── Schedule / cancel native notifications when alarms change ────────────
-  const scheduleAlarm = async (alarm: Alarm) => {
-    const fireDate = new Date(alarm.time);
-    const notifId = await scheduleAlarmNotification({
-      id: alarm.id,
-      title: '⏰ Chronopop Alarm',
-      body: `It\'s ${fireDate.getHours().toString().padStart(2,'0')}:${fireDate.getMinutes().toString().padStart(2,'0')} — your alarm is going off!`,
-      fireDate,
-      repeatsDaily: true,
-    });
-    if (notifId) registerNotifId(alarm.id, notifId);
-  };
-
-  const toggleAlarm = async (id: string) => {
-    setAlarms(prev => {
-      const next = prev.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a);
-      const alarm = next.find(a => a.id === id)!;
-      if (alarm.enabled) scheduleAlarm(alarm);
-      else cancelAlarmNotification(id);
-      return next;
-    });
+  const toggleAlarm = async (id: Id<"alarms">) => {
+    const alarm = alarms.find(a => a._id === id);
+    if (alarm) {
+      updateAlarmMutable({ id, enabled: !alarm.enabled });
+    }
   };
 
   const addAlarm = () => {
-    const newAlarm: Alarm = {
-      id: Date.now().toString(),
-      time: new Date(),
+    const now = new Date();
+    now.setHours(7, 0, 0, 0);
+    createAlarmMutable({
+      deviceId: syncCode,
+      timeUnixMs: now.getTime(),
       enabled: true,
       colorKey: 'blue',
       missionEnabled: false,
-    };
-    setAlarms(prev => [...prev, newAlarm]);
-    scheduleAlarm(newAlarm);
-  };
-
-  const deleteAlarm = (id: string) => {
-    cancelAlarmNotification(id);
-    setAlarms(prev => prev.filter(a => a.id !== id));
+    });
   };
 
   const modifyAlarmTime = (hours: number, minutes: number) => {
     if (!editingAlarmId) return;
-    setAlarms(prev => prev.map(a => {
-      if (a.id !== editingAlarmId) return a;
-      const newTime = new Date(a.time);
-      newTime.setHours(newTime.getHours() + hours);
-      newTime.setMinutes(newTime.getMinutes() + minutes);
-      return { ...a, time: newTime };
-    }));
+    const alarm = alarms.find(a => a._id === editingAlarmId);
+    if (!alarm) return;
+    
+    const newTime = new Date(alarm.timeUnixMs);
+    newTime.setHours(newTime.getHours() + hours);
+    newTime.setMinutes(newTime.getMinutes() + minutes);
+    updateAlarmMutable({ id: editingAlarmId, timeUnixMs: newTime.getTime() });
   };
 
-  const renderItem = ({ item }: { item: Alarm }) => {
+  const renderItem = ({ item }: { item: Doc<"alarms"> }) => {
+    const alarmTime = new Date(item.timeUnixMs);
     const formatter = new Intl.DateTimeFormat('en-US', {
       hour: 'numeric',
       minute: '2-digit',
@@ -113,41 +89,41 @@ export const AlarmsScreen = () => {
           <TouchableOpacity 
             style={styles.timeContainer}
             onPress={() => {
-              setEditingAlarmId(item.id);
+              setEditingAlarmId(item._id);
               setShowTimePicker(true);
             }}
           >
-            <ThemeText variant="h1" colorKey={item.colorKey} style={{ opacity: item.enabled ? 1 : 0.5 }}>
-              {formatter.format(item.time)}
+            <ThemeText variant="h1" colorKey={item.colorKey as keyof ThemeColors} style={{ opacity: item.enabled ? 1 : 0.5 }}>
+              {formatter.format(alarmTime)}
             </ThemeText>
           </TouchableOpacity>
           <Switch
             value={item.enabled}
-            onValueChange={() => toggleAlarm(item.id)}
-            trackColor={{ false: colors.surface2, true: colors[item.colorKey] }}
+            onValueChange={() => toggleAlarm(item._id)}
+            trackColor={{ false: colors.surface2, true: colors[item.colorKey as keyof ThemeColors] }}
             thumbColor={Platform.OS === 'ios' ? undefined : colors.base}
           />
         </View>
         
         <View style={styles.cardFooter}>
           <TouchableOpacity 
-            style={[styles.colorButton, { backgroundColor: colors[item.colorKey] }]}
+            style={[styles.colorButton, { backgroundColor: colors[item.colorKey as keyof ThemeColors] }]}
             onPress={() => {
-              setSelectedAlarmId(item.id);
+              setSelectedAlarmId(item._id);
               setPickerVisible(true);
             }}
           />
           <TouchableOpacity 
             style={[styles.missionBtn, { backgroundColor: item.missionEnabled ? colors.peach : colors.surface1 }]}
             onPress={() => {
-              setAlarms(prev => prev.map(a => a.id === item.id ? { ...a, missionEnabled: !a.missionEnabled } : a));
+              updateAlarmMutable({ id: item._id, missionEnabled: !item.missionEnabled });
             }}
           >
             <ThemeText variant="caption" colorKey={item.missionEnabled ? 'base' : 'text'} style={{ fontWeight: 'bold' }}>
               {item.missionEnabled ? 'Mission ON' : 'Mission OFF'}
             </ThemeText>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => deleteAlarm(item.id)}>
+          <TouchableOpacity onPress={() => deleteAlarmMutable({ id: item._id })}>
             <Ionicons name="trash-outline" size={24} color={colors.red} />
           </TouchableOpacity>
         </View>
@@ -159,7 +135,7 @@ export const AlarmsScreen = () => {
     <View style={[styles.container, { backgroundColor: colors.base }]}>
       <FlatList
         data={alarms}
-        keyExtractor={item => item.id}
+        keyExtractor={item => item._id}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
       />
@@ -175,9 +151,9 @@ export const AlarmsScreen = () => {
         <ThemeColorPicker
           visible={pickerVisible}
           onClose={() => setPickerVisible(false)}
-          selectedColorKey={alarms.find(a => a.id === selectedAlarmId)?.colorKey}
+          selectedColorKey={alarms.find(a => a._id === selectedAlarmId)?.colorKey as keyof ThemeColors}
           onSelectColor={(colorKey) => {
-            setAlarms(prev => prev.map(a => a.id === selectedAlarmId ? { ...a, colorKey } : a));
+            updateAlarmMutable({ id: selectedAlarmId, colorKey });
           }}
         />
       )}
@@ -194,7 +170,7 @@ export const AlarmsScreen = () => {
                     <Ionicons name="chevron-up" size={24} color={colors.text} />
                   </TouchableOpacity>
                   <ThemeText variant="h1" colorKey="text">
-                    {alarms.find(a => a.id === editingAlarmId)?.time.getHours().toString().padStart(2, '0') || '00'}
+                    {new Date(alarms.find(a => a._id === editingAlarmId)?.timeUnixMs || 0).getHours().toString().padStart(2, '0')}
                   </ThemeText>
                   <TouchableOpacity style={[styles.timeIncBtn, { backgroundColor: colors.surface1 }]} onPress={() => modifyAlarmTime(-1, 0)}>
                     <Ionicons name="chevron-down" size={24} color={colors.text} />
@@ -208,7 +184,7 @@ export const AlarmsScreen = () => {
                     <Ionicons name="chevron-up" size={24} color={colors.text} />
                   </TouchableOpacity>
                   <ThemeText variant="h1" colorKey="text">
-                    {alarms.find(a => a.id === editingAlarmId)?.time.getMinutes().toString().padStart(2, '0') || '00'}
+                    {new Date(alarms.find(a => a._id === editingAlarmId)?.timeUnixMs || 0).getMinutes().toString().padStart(2, '0')}
                   </ThemeText>
                   <TouchableOpacity style={[styles.timeIncBtn, { backgroundColor: colors.surface1 }]} onPress={() => modifyAlarmTime(0, -1)}>
                     <Ionicons name="chevron-down" size={24} color={colors.text} />

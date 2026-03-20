@@ -1,25 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity, TextInput } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { ThemeColors } from '../theme/colors';
 import { ThemeText } from '../components/ThemeText';
 import { ThemeColorPicker } from '../components/ThemeColorPicker';
 import { Ionicons } from '@expo/vector-icons';
-
-type Lap = {
-  id: string;
-  timeMs: number;
-};
-
-type Stopwatch = {
-  id: string;
-  name: string;
-  colorKey: keyof ThemeColors;
-  isRunning: boolean;
-  timeMs: number;
-  lastTickTime: number;
-  laps: Lap[];
-};
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
+import { useSync } from '../context/SyncContext';
+import { useSyncedClock } from '../hooks/useSyncedClock';
+import { Doc, Id } from '../../convex/_generated/dataModel';
 
 const COLOR_OPTIONS: (keyof ThemeColors)[] = ['blue', 'lavender', 'sapphire', 'sky', 'teal', 'green', 'yellow', 'peach', 'maroon', 'red', 'mauve', 'pink', 'flamingo', 'rosewater'];
 
@@ -31,126 +21,121 @@ const formatTime = (ms: number) => {
   return `${minutes}:${seconds}.${centiseconds}`;
 };
 
+const StopwatchCard = ({ 
+  sw, 
+  onDelete, 
+  onToggle, 
+  onReset, 
+  onUpdate, 
+  onPickColor,
+  onAddLap
+}: { 
+  sw: Doc<"stopwatches">;
+  onDelete: (id: Id<"stopwatches">) => void;
+  onToggle: (id: Id<"stopwatches">, isRunning: boolean) => void;
+  onReset: (id: Id<"stopwatches">) => void;
+  onUpdate: (id: Id<"stopwatches">, patch: any) => void;
+  onPickColor: (id: Id<"stopwatches">) => void;
+  onAddLap: (id: Id<"stopwatches">, timeMs: number) => void;
+}) => {
+  const { colors } = useTheme();
+  const laps = useQuery(api.db.getStopwatchLaps, { stopwatchId: sw._id }) || [];
+  const displayTime = useSyncedClock({
+    startTimeMs: sw.startTimeMs,
+    baseTimeMs: sw.baseTimeMs,
+    isRunning: sw.isRunning,
+    type: 'stopwatch'
+  });
+
+  return (
+    <View style={[styles.card, { backgroundColor: colors.surface0, shadowColor: colors.crust }]}>
+      <View style={styles.cardHeader}>
+        <TextInput
+          style={[styles.nameInput, { color: colors.text }]}
+          value={sw.name}
+          onChangeText={(text) => onUpdate(sw._id, { name: text })}
+          placeholderTextColor={colors.subtext0}
+        />
+        <TouchableOpacity onPress={() => onDelete(sw._id)}>
+          <Ionicons name="close" size={24} color={colors.subtext0} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.timeContainer}>
+        <ThemeText style={styles.timeText} colorKey={sw.colorKey as keyof ThemeColors}>{formatTime(displayTime)}</ThemeText>
+      </View>
+
+      <View style={styles.controls}>
+        <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface1 }]} onPress={() => onPickColor(sw._id)}>
+          <View style={[styles.colorDot, { backgroundColor: colors[sw.colorKey as keyof ThemeColors] }]} />
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface1 }]} onPress={() => sw.isRunning ? onAddLap(sw._id, displayTime) : onReset(sw._id)}>
+          <Ionicons name={sw.isRunning ? "flag" : "refresh"} size={20} color={colors.text} />
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.playButton, { backgroundColor: colors[sw.colorKey as keyof ThemeColors], shadowColor: colors.crust }]} onPress={() => onToggle(sw._id, !sw.isRunning)}>
+          <Ionicons name={sw.isRunning ? "pause" : "play"} size={24} color={colors.base} />
+        </TouchableOpacity>
+      </View>
+
+      {laps.length > 0 && (
+        <View style={styles.lapsContainer}>
+          {laps.slice(0, 3).map((lap, index) => (
+            <View key={lap._id} style={[styles.lapRow, { borderBottomColor: colors.surface1 }]}>
+              <ThemeText variant="caption" colorKey="subtext0">Lap {laps.length - index}</ThemeText>
+              <ThemeText variant="body" colorKey="text">{formatTime(lap.timeMs)}</ThemeText>
+            </View>
+          ))}
+          {laps.length > 3 && (
+            <ThemeText variant="caption" colorKey="subtext0" style={styles.moreLaps}>+{laps.length - 3} more</ThemeText>
+          )}
+        </View>
+      )}
+    </View>
+  );
+};
+
 export const StopwatchScreen = () => {
   const { colors } = useTheme();
-  const [stopwatches, setStopwatches] = useState<Stopwatch[]>([]);
-  const [pickerVisible, setPickerVisible] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { syncCode } = useSync();
   
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopwatches = useQuery(api.db.getStopwatches, { deviceId: syncCode }) || [];
+  const createStopwatchMutable = useMutation(api.db.createStopwatch);
+  const deleteStopwatchMutable = useMutation(api.db.deleteStopwatch);
+  const toggleStopwatchMutable = useMutation(api.db.toggleStopwatch);
+  const resetStopwatchMutable = useMutation(api.db.resetStopwatch);
+  const addStopwatchLapMutable = useMutation(api.db.addStopwatchLap);
+  // We'll use a generic update mutation if available or just update color/name
+  // @ts-ignore - we'll handle this in the card
+  const updateStopwatchMutable = useMutation(api.db.updateStopwatch);
 
-  useEffect(() => {
-    tickRef.current = setInterval(() => {
-      setStopwatches(prev => prev.map(sw => {
-        if (!sw.isRunning) return sw;
-        const now = Date.now();
-        const delta = now - sw.lastTickTime;
-        return { ...sw, timeMs: sw.timeMs + delta, lastTickTime: now };
-      }));
-    }, 10);
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-    };
-  }, []);
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [selectedId, setSelectedId] = useState<Id<"stopwatches"> | null>(null);
 
   const addStopwatch = () => {
     const randomColor = COLOR_OPTIONS[Math.floor(Math.random() * COLOR_OPTIONS.length)];
-    const newSw: Stopwatch = {
-      id: Date.now().toString(),
+    createStopwatchMutable({
+      deviceId: syncCode,
       name: `Stopwatch ${stopwatches.length + 1}`,
       colorKey: randomColor,
-      isRunning: false,
-      timeMs: 0,
-      lastTickTime: Date.now(),
-      laps: [],
-    };
-    setStopwatches(prev => [...prev, newSw]);
-  };
-
-  const deleteSw = (id: string) => {
-    setStopwatches(prev => prev.filter(sw => sw.id !== id));
-  };
-
-  const toggleRun = (id: string) => {
-    setStopwatches(prev => prev.map(sw => {
-      if (sw.id !== id) return sw;
-      return { 
-        ...sw, 
-        isRunning: !sw.isRunning, 
-        lastTickTime: !sw.isRunning ? Date.now() : sw.lastTickTime 
-      };
-    }));
-  };
-
-  const resetSw = (id: string) => {
-    setStopwatches(prev => prev.map(sw => {
-      if (sw.id !== id) return sw;
-      return { ...sw, isRunning: false, timeMs: 0, laps: [] };
-    }));
-  };
-
-  const addLap = (id: string) => {
-    setStopwatches(prev => prev.map(sw => {
-      if (sw.id !== id) return sw;
-      const newLap = { id: Date.now().toString(), timeMs: sw.timeMs };
-      return { ...sw, laps: [newLap, ...sw.laps] };
-    }));
-  };
-
-  const renderItem = ({ item }: { item: Stopwatch }) => {
-    return (
-      <View style={[styles.card, { backgroundColor: colors.surface0, shadowColor: colors.crust }]}>
-        <View style={styles.cardHeader}>
-          <TextInput
-            style={[styles.nameInput, { color: colors.text }]}
-            value={item.name}
-            onChangeText={(text) => setStopwatches(prev => prev.map(s => s.id === item.id ? { ...s, name: text } : s))}
-            placeholderTextColor={colors.subtext0}
-          />
-          <TouchableOpacity onPress={() => deleteSw(item.id)}>
-            <Ionicons name="close" size={24} color={colors.subtext0} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.timeContainer}>
-          <ThemeText style={styles.timeText} colorKey={item.colorKey}>{formatTime(item.timeMs)}</ThemeText>
-        </View>
-
-        <View style={styles.controls}>
-          <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface1 }]} onPress={() => { setSelectedId(item.id); setPickerVisible(true); }}>
-            <View style={[styles.colorDot, { backgroundColor: colors[item.colorKey] }]} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface1 }]} onPress={() => item.isRunning ? addLap(item.id) : resetSw(item.id)}>
-            <Ionicons name={item.isRunning ? "flag" : "refresh"} size={20} color={colors.text} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.playButton, { backgroundColor: colors[item.colorKey], shadowColor: colors.crust }]} onPress={() => toggleRun(item.id)}>
-            <Ionicons name={item.isRunning ? "pause" : "play"} size={24} color={colors.base} />
-          </TouchableOpacity>
-        </View>
-
-        {item.laps.length > 0 && (
-          <View style={styles.lapsContainer}>
-            {item.laps.slice(0, 3).map((lap, index) => (
-              <View key={lap.id} style={[styles.lapRow, { borderBottomColor: colors.surface1 }]}>
-                <ThemeText variant="caption" colorKey="subtext0">Lap {item.laps.length - index}</ThemeText>
-                <ThemeText variant="body" colorKey="text">{formatTime(lap.timeMs)}</ThemeText>
-              </View>
-            ))}
-            {item.laps.length > 3 && (
-              <ThemeText variant="caption" colorKey="subtext0" style={styles.moreLaps}>+{item.laps.length - 3} more</ThemeText>
-            )}
-          </View>
-        )}
-      </View>
-    );
+    });
   };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.base }]}>
       <FlatList
         data={stopwatches}
-        keyExtractor={item => item.id}
-        renderItem={renderItem}
+        keyExtractor={item => item._id}
+        renderItem={({ item }) => (
+          <StopwatchCard 
+            sw={item} 
+            onDelete={(id) => deleteStopwatchMutable({ id })}
+            onToggle={(id, isRunning) => toggleStopwatchMutable({ id, isRunning, now: Date.now() })}
+            onReset={(id) => resetStopwatchMutable({ id })}
+            onUpdate={(id, patch) => updateStopwatchMutable ? updateStopwatchMutable({ id, ...patch }) : null}
+            onPickColor={(id) => { setSelectedId(id); setPickerVisible(true); }}
+            onAddLap={(id, timeMs) => addStopwatchLapMutable({ stopwatchId: id, timeMs })}
+          />
+        )}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
@@ -171,9 +156,9 @@ export const StopwatchScreen = () => {
         <ThemeColorPicker
           visible={pickerVisible}
           onClose={() => setPickerVisible(false)}
-          selectedColorKey={stopwatches.find(s => s.id === selectedId)?.colorKey}
+          selectedColorKey={stopwatches.find(s => s._id === selectedId)?.colorKey as keyof ThemeColors}
           onSelectColor={(colorKey) => {
-            setStopwatches(prev => prev.map(s => s.id === selectedId ? { ...s, colorKey } : s));
+            if (updateStopwatchMutable) updateStopwatchMutable({ id: selectedId, colorKey });
           }}
         />
       )}

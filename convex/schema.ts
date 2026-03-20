@@ -29,6 +29,33 @@ export default defineSchema({
     totalFocusMinutes: v.number(),
     treatmentsCompleted: v.number(),
   }).index("by_device", ["deviceId"]),
+  timers: defineTable({
+    deviceId: v.string(),
+    name: v.string(),
+    colorKey: v.string(),
+    durationMs: v.number(),
+    startTimeMs: v.optional(v.number()),
+    baseTimeMs: v.number(),
+    isRunning: v.boolean(),
+    isFinished: v.boolean(),
+    isPomodoro: v.optional(v.boolean()),
+    pomodoroState: v.optional(v.string()), // 'work' | 'break'
+    pomodoroWorkMs: v.optional(v.number()),
+    pomodoroBreakMs: v.optional(v.number()),
+  }).index("by_device", ["deviceId"]),
+  stopwatches: defineTable({
+    deviceId: v.string(),
+    name: v.string(),
+    colorKey: v.string(),
+    startTimeMs: v.optional(v.number()),
+    baseTimeMs: v.number(),
+    isRunning: v.boolean(),
+  }).index("by_device", ["deviceId"]),
+  stopwatchLaps: defineTable({
+    stopwatchId: v.id("stopwatches"),
+    timeMs: v.number(),
+    timestamp: v.number(),
+  }).index("by_stopwatch", ["stopwatchId"]),
   backups: defineTable({
     deviceId: v.string(),
     profilesJson: v.string(),
