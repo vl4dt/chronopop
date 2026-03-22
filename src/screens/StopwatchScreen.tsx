@@ -8,9 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSync } from '../context/SyncContext';
 import { usePersistentStopwatches } from '../hooks/usePersistentData';
 import { useSyncedClock } from '../hooks/useSyncedClock';
-import { useQuery } from 'convex/react';
-import { api } from '../../convex/_generated/api';
-import { Doc, Id } from '../../convex/_generated/dataModel';
 import { ProUpgradeModal } from '../components/ProUpgradeModal';
 import { AdBanner } from '../components/AdBanner';
 import { SyncStatusIndicator } from '../components/SyncStatusIndicator';
@@ -43,11 +40,9 @@ const StopwatchCard = ({
   onAddLap: (id: string, timeMs: number) => void;
 }) => {
   const { colors } = useTheme();
-  const { isSyncActive } = useSync();
   
-  // Conditionally fetch laps if syncing, otherwise use embedded ones
-  const convexLaps = useQuery(api.db.getStopwatchLaps, isSyncActive ? { stopwatchId: sw._id } : 'skip' as any);
-  const laps = isSyncActive ? (convexLaps || []) : (sw.laps || []);
+  // Always use embedded laps in local-only mode
+  const laps = sw.laps || [];
 
   const displayTime = useSyncedClock({
     startTimeMs: sw.startTimeMs,

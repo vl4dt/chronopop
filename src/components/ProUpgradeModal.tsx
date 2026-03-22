@@ -4,7 +4,6 @@ import { useTheme } from '../theme/ThemeContext';
 import { ThemeText } from './ThemeText';
 import { Ionicons } from '@expo/vector-icons';
 import { useSync } from '../context/SyncContext';
-import { PurchasesPackage } from 'react-native-purchases';
 
 interface ProUpgradeModalProps {
   visible: boolean;
@@ -13,12 +12,7 @@ interface ProUpgradeModalProps {
 
 export const ProUpgradeModal = ({ visible, onClose }: ProUpgradeModalProps) => {
   const { colors } = useTheme();
-  const { purchasePackage, restorePurchases, offerings, isPro } = useSync();
-
-  const handlePurchase = async (pkg: PurchasesPackage) => {
-    await purchasePackage(pkg);
-    if (isPro) onClose();
-  };
+  const { purchasePackage, restorePurchases, isPro, trialDaysRemaining, isTrialExpired } = useSync();
 
   const Feature = ({ icon, title, description }: { icon: any, title: string, description: string }) => (
     <View style={styles.featureRow}>
@@ -58,11 +52,6 @@ export const ProUpgradeModal = ({ visible, onClose }: ProUpgradeModalProps) => {
                 description="Create as many Alarms, Timers, and Stopwatches as you need." 
               />
               <Feature 
-                icon="cloud-done" 
-                title="Cloud Synchronization" 
-                description="Keep your data in sync across all your devices in real-time." 
-              />
-              <Feature 
                 icon="color-palette" 
                 title="Premium Themes" 
                 description="Unlock all Catppuccin flavors: Mocha, Macchiato, and Frappé." 
@@ -80,32 +69,41 @@ export const ProUpgradeModal = ({ visible, onClose }: ProUpgradeModalProps) => {
             </View>
 
             <View style={styles.pricingSection}>
-              {offerings?.current?.availablePackages.map((pkg) => (
-                <TouchableOpacity 
-                  key={pkg.identifier}
-                  style={[styles.buyBtn, { backgroundColor: colors.mauve, marginBottom: 12 }]} 
-                  onPress={() => handlePurchase(pkg)}
-                >
-                  <ThemeText variant="body" colorKey="base" style={{ fontWeight: 'bold' }}>
-                    {pkg.product.title.replace(' (Chronopop)', '')} – {pkg.product.priceString}
-                  </ThemeText>
-                </TouchableOpacity>
-              ))}
-
-              {!offerings?.current && (
+              {isTrialExpired ? (
                 <>
-                  <TouchableOpacity style={[styles.buyBtn, { backgroundColor: colors.mauve, opacity: 0.5 }]} disabled>
-                    <ThemeText variant="body" colorKey="base">Loading offerings...</ThemeText>
-                  </TouchableOpacity>
+                  <ThemeText variant="h2" colorKey="red" style={{ textAlign: 'center', marginBottom: 16 }}>
+                    Trial Expired
+                  </ThemeText>
+                  <ThemeText variant="body" colorKey="subtext0" style={{ textAlign: 'center', marginBottom: 24 }}>
+                    Your 30-day free trial has ended. All features are currently available while we prepare the store.
+                  </ThemeText>
+                </>
+              ) : (
+                <>
+                  <ThemeText variant="h2" colorKey="green" style={{ textAlign: 'center', marginBottom: 16 }}>
+                    {trialDaysRemaining} Days Remaining
+                  </ThemeText>
+                  <ThemeText variant="body" colorKey="subtext0" style={{ textAlign: 'center', marginBottom: 24 }}>
+                    You're enjoying a 30-day free trial with full access to all Pro features!
+                  </ThemeText>
                 </>
               )}
+              
+              <TouchableOpacity 
+                style={[styles.buyBtn, { backgroundColor: colors.mauve }]} 
+                onPress={purchasePackage}
+              >
+                <ThemeText variant="body" colorKey="base" style={{ fontWeight: 'bold' }}>
+                  Coming Soon - In-App Purchases
+                </ThemeText>
+              </TouchableOpacity>
               
               <TouchableOpacity style={styles.restoreBtn} onPress={restorePurchases}>
                 <ThemeText variant="caption" colorKey="subtext0" style={{ fontWeight: 'bold' }}>Restore Purchases</ThemeText>
               </TouchableOpacity>
               
               <ThemeText variant="caption" colorKey="subtext1" style={{ textAlign: 'center', marginTop: 16 }}>
-                Subscriptions auto-renew. Lifetime is a one-time payment. Cancel anytime.
+                All features are free during the trial period. In-app purchases coming soon!
               </ThemeText>
             </View>
           </ScrollView>

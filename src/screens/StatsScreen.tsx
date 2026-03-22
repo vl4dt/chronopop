@@ -1,25 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { useQuery } from 'convex/react';
-import { api } from '../../convex/_generated/api';
 import { useTheme } from '../theme/ThemeContext';
 import { ThemeText } from '../components/ThemeText';
 import { Ionicons } from '@expo/vector-icons';
 import { getStats } from '../utils/stats';
-import { useSync } from '../context/SyncContext';
 
 export const StatsScreen = () => {
   const { colors } = useTheme();
-  const { syncCode, isSyncActive } = useSync();
   const [localStats, setLocalStats] = useState({ focusMinutes: 0, treatments: 0 });
   const [refreshing, setRefreshing] = useState(false);
-
-  // Real-time Convex stats subscription (when premium sync is on)
-  const convexStats = useQuery(
-    api.db.getGlobalStats,
-    syncCode && isSyncActive ? { deviceId: syncCode } : 'skip'
-  );
 
   const loadLocalStats = async () => {
     const data = await getStats();
@@ -34,9 +24,7 @@ export const StatsScreen = () => {
     setRefreshing(false);
   };
 
-  const stats = isSyncActive && convexStats
-    ? { focusMinutes: convexStats.totalFocusMinutes, treatments: convexStats.treatmentsCompleted }
-    : localStats;
+  const stats = localStats;
 
   const hours = Math.floor(stats.focusMinutes / 60);
   const minutes = stats.focusMinutes % 60;
@@ -75,7 +63,7 @@ export const StatsScreen = () => {
             <Ionicons name="trophy-outline" size={48} color={colors.yellow} style={{ marginBottom: 16 }} />
             <ThemeText variant="h2" colorKey="text" style={{ textAlign: 'center', marginBottom: 8 }}>Keep up the great work!</ThemeText>
             <ThemeText variant="body" colorKey="subtext0" style={{ textAlign: 'center' }}>
-              Your progress is safely stored and synced across your devices. Keep focusing to watch these numbers climb!
+              Your progress is safely stored on this device. Keep focusing to watch these numbers climb!
             </ThemeText>
         </View>
       </ScrollView>

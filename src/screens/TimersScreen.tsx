@@ -12,9 +12,6 @@ import { startPomodoroActivity, endPomodoroActivity, updatePomodoroActivity } fr
 import { useSync } from '../context/SyncContext';
 import { usePersistentTimers } from '../hooks/usePersistentData';
 import { useSyncedClock } from '../hooks/useSyncedClock';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../convex/_generated/api';
-import { Doc, Id } from '../../convex/_generated/dataModel';
 import { ProUpgradeModal } from '../components/ProUpgradeModal';
 import { AdBanner } from '../components/AdBanner';
 import { SyncStatusIndicator } from '../components/SyncStatusIndicator';

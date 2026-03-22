@@ -1,24 +1,28 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Purchases, { PurchasesPackage, CustomerInfo, PurchasesOfferings } from 'react-native-purchases';
-import { getDeviceSyncCode, generateShortCode } from '../utils/sync';
-import { api } from '../../convex/_generated/api';
-import { useQuery, useMutation } from 'convex/react';
+import { generateShortCode } from '../utils/sync';
 import { Platform, Alert } from 'react-native';
+
+// Constants for trial period
+const TRIAL_DURATION_DAYS = 30;
+const TRIAL_START_KEY = '@trial_start_date';
+const IS_PRO_KEY = '@is_pro_local';
 
 interface SyncContextType {
   syncCode: string;
   isPro: boolean;
   isSyncActive: boolean;
   clockOffset: number;
-  offerings: PurchasesOfferings | null;
   hapticsEnabled: boolean;
+  trialDaysRemaining: number;
+  isTrialExpired: boolean;
   setSyncCode: (code: string) => Promise<void>;
-  purchasePackage: (pkg: PurchasesPackage) => Promise<void>;
+  purchasePackage: () => Promise<void>;
   restorePurchases: () => Promise<void>;
   toggleSync: (active: boolean) => Promise<void>;
   setHapticsEnabled: (enabled: boolean) => Promise<void>;
   resetSyncCode: () => Promise<string>;
+  upgradeToPro: () => Promise<void>;
 }
 
 const SyncContext = createContext<SyncContextType>({
@@ -26,14 +30,16 @@ const SyncContext = createContext<SyncContextType>({
   isPro: false,
   isSyncActive: false,
   clockOffset: 0,
-  offerings: null,
   hapticsEnabled: true,
+  trialDaysRemaining: 30,
+  isTrialExpired: false,
   setSyncCode: async () => {},
   purchasePackage: async () => {},
   restorePurchases: async () => {},
   toggleSync: async () => {},
   setHapticsEnabled: async () => {},
   resetSyncCode: async () => '',
+  upgradeToPro: async () => {},
 });
 
 export const useSync = () => useContext(SyncContext);
@@ -43,65 +49,48 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const [localIsPro, setLocalIsPro] = useState(false);
   const [isSyncActive, setIsSyncActive] = useState(false);
   const [clockOffset, setClockOffset] = useState(0);
-  const [offerings, setOfferings] = useState<PurchasesOfferings | null>(null);
   const [hapticsEnabled, setHapticsEnabledState] = useState(true);
+  const [trialDaysRemaining, setTrialDaysRemaining] = useState(TRIAL_DURATION_DAYS);
+  const [isTrialExpired, setIsTrialExpired] = useState(false);
 
-  const serverTime = useQuery(api.db.getServerTime);
-  const cloudProfile = useQuery(api.db.getSyncProfile, { deviceId: syncCode });
-  const updateCloudProStatus = useMutation(api.db.updateSyncProfileProStatus);
+  // Calculate effective Pro status: Local purchase OR within trial period
+  const isPro = localIsPro || !isTrialExpired;
 
-  // Effective Pro status: Local purchase OR inherited via Cloud Sync code
-  const isPro = localIsPro || cloudProfile?.isPro || false;
-
-  useEffect(() => {
-    if (serverTime) {
-      setClockOffset(serverTime - Date.now());
-    }
-  }, [serverTime]);
-
-  // RevenueCat Initialization
-  useEffect(() => {
-    const setup = async () => {
-      // API Keys (Placeholders - USER should replace these in Expo dashboard or env)
-      const apiKey = Platform.select({
-        ios: process.env.EXPO_PUBLIC_RC_IOS_KEY || "goog_placeholder_ios",
-        android: process.env.EXPO_PUBLIC_RC_ANDROID_KEY || "goog_placeholder_android",
-      });
-
-      if (apiKey) {
-        Purchases.configure({ apiKey });
-        
-        // Initial check
-        const customerInfo = await Purchases.getCustomerInfo();
-        updateProStatus(customerInfo);
-
-        const currentOfferings = await Purchases.getOfferings();
-        setOfferings(currentOfferings);
-
-        // Listen for changes
-        Purchases.addCustomerInfoUpdateListener((info) => {
-          updateProStatus(info);
-        });
-      }
-    };
-
-    const updateProStatus = async (info: CustomerInfo) => {
-      const proActive = info.entitlements.active['pro'] !== undefined;
-      setLocalIsPro(proActive);
-      
-      // Persist to Convex if we have a syncCode and it changed
-      if (syncCode && proActive !== cloudProfile?.isPro) {
-        await updateCloudProStatus({ deviceId: syncCode, isPro: proActive });
-      }
-    };
-
-    setup();
-  }, [syncCode, cloudProfile?.isPro]);
-
+  // Initialize trial and load saved data
   useEffect(() => {
     const init = async () => {
       const code = await getDeviceSyncCode();
       setSyncCodeState(code);
+      
+      // Check trial status
+      const trialStart = await AsyncStorage.getItem(TRIAL_START_KEY);
+      const savedProStatus = await AsyncStorage.getItem(IS_PRO_KEY);
+      
+      if (savedProStatus === 'true') {
+        // User has purchased Pro
+        setLocalIsPro(true);
+        setIsTrialExpired(false);
+        setTrialDaysRemaining(0);
+        console.log('[Trial] User has purchased Pro');
+      } else if (trialStart) {
+        // Trial started previously, calculate remaining days
+        const startDate = new Date(trialStart);
+        const now = new Date();
+        const diffTime = now.getTime() - startDate.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        const remaining = Math.max(0, TRIAL_DURATION_DAYS - diffDays);
+        
+        setTrialDaysRemaining(remaining);
+        setIsTrialExpired(remaining === 0);
+        console.log(`[Trial] Days remaining: ${remaining}, Expired: ${remaining === 0}`);
+      } else {
+        // First launch - start trial
+        const now = new Date().toISOString();
+        await AsyncStorage.setItem(TRIAL_START_KEY, now);
+        setTrialDaysRemaining(TRIAL_DURATION_DAYS);
+        setIsTrialExpired(false);
+        console.log(`[Trial] First launch - ${TRIAL_DURATION_DAYS} day trial started`);
+      }
       
       const [syncStatus, hapticsStatus] = await Promise.all([
         AsyncStorage.getItem('@is_sync_active'),
@@ -110,11 +99,20 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (hapticsStatus !== null) setHapticsEnabledState(hapticsStatus === 'true');
       
-      // Sync is only active for Pro users (local or cloud) who have enabled it
-      setIsSyncActive(syncStatus === 'true' && isPro);
+      // Sync is disabled in local-only mode (always false)
+      setIsSyncActive(false);
     };
     init();
-  }, [isPro]);
+  }, []);
+
+  const getDeviceSyncCode = async (): Promise<string> => {
+    let code = await AsyncStorage.getItem('@sync_code');
+    if (!code) {
+      code = generateShortCode();
+      await AsyncStorage.setItem('@sync_code', code);
+    }
+    return code;
+  };
 
   const setSyncCode = useCallback(async (code: string) => {
     const normalized = code.toUpperCase();
@@ -122,42 +120,42 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     setSyncCodeState(normalized);
   }, []);
 
-  const purchasePackage = useCallback(async (pkg: PurchasesPackage) => {
-    try {
-      const { customerInfo } = await Purchases.purchasePackage(pkg);
-      const proActive = customerInfo.entitlements.active['pro'] !== undefined;
-      setLocalIsPro(proActive);
-      if (syncCode) {
-        await updateCloudProStatus({ deviceId: syncCode, isPro: proActive });
-      }
-    } catch (e: any) {
-      if (!e.userCancelled) {
-        Alert.alert("Error", e.message);
-      }
-    }
-  }, [syncCode]);
+  // Placeholder for RevenueCat purchase (disabled)
+  const purchasePackage = useCallback(async () => {
+    Alert.alert(
+      "Coming Soon",
+      "In-app purchases are temporarily disabled. All features are free during the trial period!"
+    );
+  }, []);
 
+  // Placeholder for RevenueCat restore (disabled)
   const restorePurchases = useCallback(async () => {
-    try {
-      const customerInfo = await Purchases.restorePurchases();
-      const proActive = customerInfo.entitlements.active['pro'] !== undefined;
-      setLocalIsPro(proActive);
-      if (syncCode) {
-        await updateCloudProStatus({ deviceId: syncCode, isPro: proActive });
-      }
-      Alert.alert("Success", proActive ? "Purchases restored!" : "No active purchases found.");
-    } catch (e: any) {
-      Alert.alert("Error", e.message);
-    }
-  }, [syncCode]);
+    Alert.alert(
+      "Coming Soon",
+      "Purchase restoration is temporarily disabled. All features are free during the trial period!"
+    );
+  }, []);
 
+  // Manual upgrade to Pro (for testing or future use)
+  const upgradeToPro = useCallback(async () => {
+    await AsyncStorage.setItem(IS_PRO_KEY, 'true');
+    setLocalIsPro(true);
+    setIsTrialExpired(false);
+    Alert.alert("Success", "Upgraded to Pro! (Local-only mode)");
+  }, []);
+
+  // Sync is disabled in local-only mode
   const toggleSync = useCallback(async (active: boolean) => {
-    if (!isPro && active) {
-      throw new Error("Pro subscription required for Cloud Sync");
+    if (active) {
+      Alert.alert(
+        "Cloud Sync Disabled",
+        "Cloud synchronization is temporarily disabled. All data is stored locally on this device."
+      );
     }
-    await AsyncStorage.setItem('@is_sync_active', active ? 'true' : 'false');
-    setIsSyncActive(active);
-  }, [isPro]);
+    // Always keep sync disabled
+    await AsyncStorage.setItem('@is_sync_active', 'false');
+    setIsSyncActive(false);
+  }, []);
 
   const setHapticsEnabled = useCallback(async (enabled: boolean) => {
     await AsyncStorage.setItem('@haptics_enabled', enabled ? 'true' : 'false');
@@ -178,14 +176,16 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       isPro, 
       isSyncActive, 
       clockOffset, 
-      offerings,
       hapticsEnabled,
+      trialDaysRemaining,
+      isTrialExpired,
       setSyncCode, 
       purchasePackage, 
       restorePurchases,
       toggleSync,
       setHapticsEnabled,
-      resetSyncCode
+      resetSyncCode,
+      upgradeToPro
     }}>
       {children}
     </SyncContext.Provider>
